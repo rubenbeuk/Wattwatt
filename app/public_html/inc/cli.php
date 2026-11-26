@@ -427,9 +427,24 @@ try {
             uit(['proef' => $proef, 'totaal' => $tel, 'projecten' => $res]);
             break;
 
+        // Afspraak met een vast tijdstip (vervangt Pipedrive-activiteiten). Zelfde extern_id = bijwerken. Zie afspraak_opslaan in ops.php.
+        // {"titel":"Renze terugbellen","start":"2026-12-03 14:30","eind":"2026-12-03 14:45","wie":"ruben","project":"PRJ-251","locatie":"","notitie":"","bron":"mail 19-11","extern_id":"mail:<id>"}
+        case 'afspraak':
+            uit(afspraak_opslaan($d, 'Claude'));
+            break;
+
+        // Afspraken lezen. {"wie":"ruben","van":"2026-12-01","tot":"2026-12-14"} (alles optioneel; standaard vandaag tot 14 dagen verder)
+        case 'afspraken':
+            $van = geldige_datum($d['van'] ?? '') ?? vandaag(); $tot = geldige_datum($d['tot'] ?? '') ?? dag_plus($van, 14);
+            $wie = ($d['wie'] ?? '') !== '' ? gebruiker_zoek((string)$d['wie']) : null;
+            uit(q("SELECT a.id, a.titel, a.start, a.eind, a.hele_dag, a.locatie, g.gebruikersnaam AS wie, p.nummer AS project, a.extern_id FROM afspraken a
+                   LEFT JOIN gebruikers g ON g.id = a.gebruiker_id LEFT JOIN projecten p ON p.id = a.project_id
+                   WHERE a.geannuleerd = 0 AND a.start >= ? AND a.start < ? + INTERVAL 1 DAY" . ($wie ? ' AND a.gebruiker_id = ' . (int)$wie : '') . ' ORDER BY a.start', [$van, $tot])->fetchAll());
+            break;
+
         default:
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken']]);
     }
 } catch (Throwable $e) {
     if (db()->inTransaction()) db()->rollBack();

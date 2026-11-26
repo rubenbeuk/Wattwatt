@@ -26,7 +26,7 @@ Wat deze module vervangt (lees de kern met deze regels erbovenop; bij verschil w
 - Nummer: zoals de kern zegt, maar kijk naar de PRJ-nummers in de app (vapp.py projecten {"alle":true}) in plaats van Pipedrive-projecttitels. Geen Zapier update_project meer.
 - Maak het project in de app met vapp.py project_info {"project":"PRJ-<nr>","naam":"..","klant":"..","adres":"..","fase":"nieuw","systeem":"..","kwh":..,"opleverdatum":".."} (alleen wat je zeker weet). OneDrive-map zoals de kern zegt.
 
-5. Afspraken met een vast tijdstip blijven voorlopig een Pipedrive-activiteit voor Ruben (zoals de kern zegt), maar zonder project_id. Zodra de app een agenda heeft, vervalt deze regel.
+5. Afspraken met een vast tijdstip staan in de agenda van de app (niet meer als Pipedrive-activiteit): python3 "<MAP>/voorraad-app/vapp.py" afspraak {"titel":"..","start":"JJJJ-MM-DD UU:MM","eind":"JJJJ-MM-DD UU:MM","wie":"ruben","project":"PRJ-<nr> of ticketnummer","locatie":"..","notitie":"bron en context","bron":"mail <dd-mm>","extern_id":"<bron>:<id>"}. Tijden in Nederlandse tijd (geen UTC-omrekening). Alleen een datum = hele dag. Verschuift de afspraak, stuur hem opnieuw met hetzelfde extern_id; afgezegd: "geannuleerd": true. Lees de agenda met vapp.py afspraken {"wie":"ruben"}. Ruben en de collega's zien de afspraken via hun agenda-abonnement ook in Outlook en op hun telefoon. "Zet in mijn agenda" = deze opdracht.
 
 6. Oude Pipedrive-taken met extern_id "pd:<id>": niet meer terugschrijven naar Pipedrive (geen Zapier update_task). De app is de enige plek.
 
