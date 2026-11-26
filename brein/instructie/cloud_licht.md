@@ -12,7 +12,7 @@ WAAR ALLES STAAT IN DE CLOUD
 1. START (vóór ToolSearch en elke andere tool)
 - python3 app/vapp.py brein_slot '{"wie":"cloud-licht","minuten":50}'. Geeft het "ok": false (de grote run op de Mac of een andere run loopt nog): stop met één zin "Overgeslagen: <bezet_door> loopt nog." en doe niets anders.
 - python3 app/vapp.py brein_stand '{"sleutel":"licht"}'. De waarde bevat de watermerken van de lichte run (UTC): mail, support, berend, julian, teams, whatsapp (ontvangst-tijd van de app), notities, pipedrive. Ontbreekt de waarde of een veld: gebruik 2 uur voor nu.
-- Nederlandse tijd en de datum reken je uit met Python (zoneinfo Europe/Amsterdam). Is het weekend, of buiten 7:45-17:45 Nederlandse tijd: geef het slot vrij en stop met één zin.
+- Nederlandse tijd en de datum reken je uit met Python (zoneinfo Europe/Amsterdam). Het schema bepaalt al wanneer je draait (werkdagen 8-17); een run op een ander moment is een handmatige proefrun van Ruben en voer je gewoon helemaal uit.
 - Pauze: staat in snapshot/mail brein.pauze_tot een tijd in de toekomst: slot vrij en stop.
 
 2. INNAME (alles sinds de watermerken van de lichte run, in één bericht tegelijk)
