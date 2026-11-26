@@ -461,9 +461,21 @@ try {
             uit($o ?: ['leeg' => true]);
             break;
 
+        // Bespreekpunt voor het overleg Ruben en Berend. Zie bespreekpunt_opslaan in ops.php.
+        case 'bespreekpunt':
+            uit(bespreekpunt_opslaan($d, 'Claude'));
+            break;
+
+        // Bespreekpunten lezen. {} = open punten; {"besproken_sinds":"2026-11-20"} toont ook wat sindsdien besproken is (met besluit)
+        case 'bespreekpunten':
+            $sinds = geldige_datum($d['besproken_sinds'] ?? '');
+            uit(q("SELECT b.id, b.titel, b.toelichting, p.nummer AS project, b.prioriteit, b.status, b.besluit, b.besproken_op, b.extern_id FROM bespreekpunten b LEFT JOIN projecten p ON p.id = b.project_id
+                   WHERE b.status = 'open'" . ($sinds ? ' OR (b.status = \'besproken\' AND b.besproken_op >= ?)' : '') . " ORDER BY FIELD(b.prioriteit, 'hoog', 'normaal', 'laag'), b.id", $sinds ? [$sinds] : [])->fetchAll());
+            break;
+
         default:
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten']]);
     }
 } catch (Throwable $e) {
     if (db()->inTransaction()) db()->rollBack();
