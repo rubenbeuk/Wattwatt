@@ -454,9 +454,16 @@ try {
             uit($ks);
             break;
 
+        // Opleverdossier lezen (alleen lezen). {"project":"PRJ-296"}
+        case 'oplevering':
+            $pid = pid_of_fout((string)($d['project'] ?? ''));
+            $o = q('SELECT serienummers, netwerk, ems, kabel, materiaal, opmerkingen, check_inbedrijf, check_monitoring, check_uitleg, check_keuring, afgerond_op, bijgewerkt_door, bijgewerkt FROM opleveringen WHERE project_id = ?', [$pid])->fetch();
+            uit($o ?: ['leeg' => true]);
+            break;
+
         default:
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering']]);
     }
 } catch (Throwable $e) {
     if (db()->inTransaction()) db()->rollBack();

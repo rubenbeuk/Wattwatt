@@ -309,6 +309,25 @@ function schema_migreren(): array
   bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX (naam), INDEX (telefoon_kaal), INDEX (email), INDEX (pipedrive_person_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Opleverdossier (26-11-2026): wat de monteur op locatie vastlegt bij oplevering (was de Pipedrive-taak "Oplever documentatie") ---
+"CREATE TABLE IF NOT EXISTS opleveringen (
+  project_id INT UNSIGNED NOT NULL PRIMARY KEY,
+  serienummers TEXT NULL,
+  netwerk TEXT NULL,
+  ems VARCHAR(255) NOT NULL DEFAULT '',
+  kabel TEXT NULL,
+  materiaal TEXT NULL,
+  opmerkingen TEXT NULL,
+  check_inbedrijf TINYINT(1) NOT NULL DEFAULT 0,
+  check_monitoring TINYINT(1) NOT NULL DEFAULT 0,
+  check_uitleg TINYINT(1) NOT NULL DEFAULT 0,
+  check_keuring TINYINT(1) NOT NULL DEFAULT 0,
+  afgerond_op DATETIME NULL,
+  bijgewerkt_door VARCHAR(100) NOT NULL DEFAULT '',
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_ol_project FOREIGN KEY (project_id) REFERENCES projecten(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ];
     foreach ($basis as $sql) { $pdo->exec($sql); }
 

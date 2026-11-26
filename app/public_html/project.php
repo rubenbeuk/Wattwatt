@@ -165,6 +165,7 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
     </div>
     <div class="row wrap">
       <a class="btn" href="fotos.php?nr=<?= e(rawurlencode($pr['nummer'])) ?>">Foto's (<?= (int)$aantalFotos ?>)</a>
+      <?php if (!$service): ?><a class="btn" href="oplevering.php?nr=<?= e(rawurlencode($pr['nummer'])) ?>">Oplevering</a><?php endif; ?>
       <form method="post" action="index.php"><?= csrf_field() ?><button class="btn" name="project" value="<?= e($pr['nummer']) ?>" title="Scannen boekt dan op dit project">Maak actief</button></form>
     </div>
   </div>
