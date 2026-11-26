@@ -169,9 +169,16 @@ function pd_api(string $pad, array $query = []): array
     $token = $CFG['pipedrive_token'] ?? '';
     if ($token === '') throw new RuntimeException('pipedrive_token ontbreekt in voorraad-config.php');
     $url = 'https://' . ($CFG['pipedrive_domein'] ?? 'wattwatt') . '.pipedrive.com/api/' . ltrim($pad, '/') . ($query ? '?' . http_build_query($query) : '');
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_HTTPHEADER => ['x-api-token: ' . $token, 'Accept: application/json']]);
-    $body = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $kop = ['x-api-token: ' . $token, 'Accept: application/json'];
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 60, CURLOPT_HTTPHEADER => $kop]);
+        $body = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    } else {
+        // Server zonder php-curl: gewone PHP-stream
+        $body = @file_get_contents($url, false, stream_context_create(['http' => ['method' => 'GET', 'header' => implode("\r\n", $kop), 'timeout' => 60, 'ignore_errors' => true]]));
+        $code = preg_match('#^HTTP/\S+\s+(\d{3})#', $http_response_header[0] ?? '', $m) ? (int)$m[1] : 0;
+    }
     $d = json_decode((string)$body, true);
     if ($code !== 200 || !is_array($d) || empty($d['success'])) throw new RuntimeException("Pipedrive $pad: HTTP $code");
     return $d;
