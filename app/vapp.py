@@ -35,7 +35,9 @@ def main():
     if url and os.environ.get('VAPP_SLEUTEL'):
         import urllib.request, urllib.error
         req = urllib.request.Request(url.rstrip('/') + '/api_brein.php?opdracht=' + opdracht, data=invoer.encode('utf-8'), method='POST',
-                                     headers={'Authorization': 'Bearer ' + os.environ['VAPP_SLEUTEL'], 'Content-Type': 'application/json'})
+                                     headers={'Authorization': 'Bearer ' + os.environ['VAPP_SLEUTEL'], 'Content-Type': 'application/json',
+                                              # Cloudflare weigert de standaard 'Python-urllib' (fout 1010); daarom een eigen naam
+                                              'User-Agent': 'WattWatt-brein/1.0 (+vapp.py)', 'Accept': 'application/json'})
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 sys.stdout.write(resp.read().decode('utf-8'))
