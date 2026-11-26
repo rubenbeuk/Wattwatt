@@ -207,6 +207,7 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
       <dt>Adres</dt><dd><?= $pr['adres'] !== '' ? e($pr['adres']) . '<br><a href="' . e(route_url($pr['adres'])) . '" target="_blank" rel="noopener">Route</a>' : '<span class="warn-ink">ontbreekt</span>' ?></dd>
       <dt>Contact</dt><dd><?= e($pr['contact'] ?: '–') ?></dd>
       <dt>Projectleider</dt><dd><?= e($leider ?: 'Ruben en Berend') ?></dd>
+      <?php $urenTot = (float)(q('SELECT SUM(uren) s FROM uren WHERE project_id = ?', [$pr['id']])->fetch()['s'] ?? 0); if ($urenTot && is_admin()): ?><dt>Uren</dt><dd><?= str_replace('.', ',', (string)$urenTot) ?> uur geschreven</dd><?php endif; ?>
       <?php if (!$service): ?><dt>Opleverdatum</dt><dd><?= $pr['opleverdatum'] ? e(datum_lang($pr['opleverdatum'])) : '–' ?></dd><?php endif; ?>
       <?php if ($pr['pipedrive_id']): ?><dt>Pipedrive</dt><dd><a href="https://wattwatt.pipedrive.com/projects/<?= (int)$pr['pipedrive_id'] ?>" target="_blank" rel="noopener">Project openen</a></dd><?php endif; ?>
       <?php if ($pr['pipedrive_deal_id'] ?? null): ?><dt>Deal</dt><dd><a href="https://wattwatt.pipedrive.com/deal/<?= (int)$pr['pipedrive_deal_id'] ?>" target="_blank" rel="noopener">Deal in Pipedrive</a></dd><?php endif; ?>

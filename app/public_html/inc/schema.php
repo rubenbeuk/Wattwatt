@@ -346,6 +346,21 @@ function schema_migreren(): array
   INDEX (status), INDEX (project_id),
   CONSTRAINT fk_bp_project FOREIGN KEY (project_id) REFERENCES projecten(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Uren (26-11-2026): wie werkte hoe lang aan welk project of ticket (nacalculatie en facturen) ---
+"CREATE TABLE IF NOT EXISTS uren (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  gebruiker_id INT UNSIGNED NOT NULL,
+  project_id INT UNSIGNED NULL,
+  datum DATE NOT NULL,
+  uren DECIMAL(4,2) NOT NULL,
+  soort ENUM('werk','reis','overig') NOT NULL DEFAULT 'werk',
+  omschrijving VARCHAR(255) NOT NULL DEFAULT '',
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (gebruiker_id, datum), INDEX (project_id), INDEX (datum),
+  CONSTRAINT fk_u_gebruiker FOREIGN KEY (gebruiker_id) REFERENCES gebruikers(id),
+  CONSTRAINT fk_u_project FOREIGN KEY (project_id) REFERENCES projecten(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ];
     foreach ($basis as $sql) { $pdo->exec($sql); }
 
