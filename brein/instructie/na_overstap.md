@@ -31,3 +31,8 @@ Wat deze module vervangt (lees de kern met deze regels erbovenop; bij verschil w
 6. Oude Pipedrive-taken met extern_id "pd:<id>": niet meer terugschrijven naar Pipedrive (geen Zapier update_task). De app is de enige plek.
 
 7. Eenmalig na de overstap (eerste run waarin projecten_in_app true is): controleer met vapp.py projecten en vapp.py tickets of alle open projecten en tickets er staan (aantal noemen in F2), en meld in F2 wat ontbreekt. Zet daarna in overstap.json "gecontroleerd": "<datum>".
+
+8. Bespreekpunten voor het overleg Ruben en Berend staan in de app (pagina Overleg), niet meer in het Word-document "Update" in OneDrive.
+- Nieuw punt: vapp.py bespreekpunt {"titel":"..","toelichting":"bron en wat er besloten moet worden","project":"PRJ-<nr>","prioriteit":"hoog|normaal|laag","bron":"mail <dd-mm>","extern_id":"<bron>:<id>"}. Zelfde extern_id werkt het punt bij; een besproken punt gaat niet vanzelf weer open.
+- Lees vapp.py bespreekpunten {"besproken_sinds":"<datum vorige run>"} en verwerk besluiten: een besluit met actie wordt een taak (als die er nog niet is), een besluit met informatie gaat in antwoorden_ruben.md.
+- De conceptmail aan Berend (F3, eens in de 2 dagen) blijft, maar noemt de open punten uit de app met een link naar de pagina Overleg in plaats van het Word-document.

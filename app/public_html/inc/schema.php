@@ -328,6 +328,24 @@ function schema_migreren(): array
   bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_ol_project FOREIGN KEY (project_id) REFERENCES projecten(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Overleg (26-11-2026): bespreekpunten voor het overleg Ruben en Berend (was een Word-document "Update" in OneDrive) ---
+"CREATE TABLE IF NOT EXISTS bespreekpunten (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  titel VARCHAR(255) NOT NULL,
+  toelichting TEXT NULL,
+  project_id INT UNSIGNED NULL,
+  prioriteit ENUM('hoog','normaal','laag') NOT NULL DEFAULT 'normaal',
+  status ENUM('open','besproken','vervallen') NOT NULL DEFAULT 'open',
+  besluit TEXT NULL,
+  bron VARCHAR(255) NOT NULL DEFAULT '',
+  extern_id VARCHAR(150) NULL UNIQUE,
+  ingebracht_door VARCHAR(100) NOT NULL DEFAULT '',
+  besproken_op DATETIME NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (status), INDEX (project_id),
+  CONSTRAINT fk_bp_project FOREIGN KEY (project_id) REFERENCES projecten(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ];
     foreach ($basis as $sql) { $pdo->exec($sql); }
 

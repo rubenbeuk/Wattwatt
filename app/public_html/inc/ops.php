@@ -610,3 +610,26 @@ function klanten_vullen(): int
     foreach (q("SELECT id FROM projecten WHERE klant <> '' AND klant_id IS NULL ORDER BY id")->fetchAll() as $r) project_koppel_klant((int)$r['id']);
     return (int)q('SELECT COUNT(*) c FROM klanten')->fetch()['c'] - $n0;
 }
+
+// ---------- Overleg (bespreekpunten) ----------
+/** Bespreekpunt aanmaken of bijwerken (zelfde extern_id = bijwerken). {"titel":"..","toelichting":"..","project":"PRJ-293","prioriteit":"hoog","bron":"..","extern_id":".."} */
+function bespreekpunt_opslaan(array $d, string $door): array
+{
+    $ext = clean_text($d['extern_id'] ?? '') ?: null;
+    $best = $ext ? q('SELECT * FROM bespreekpunten WHERE extern_id = ?', [$ext])->fetch() : null;
+    $pid = ($d['project'] ?? '') !== '' ? (q('SELECT id FROM projecten WHERE nummer = ?', [project_nummer((string)$d['project'])])->fetch()['id'] ?? null) : null;
+    $titel = mb_substr(clean_text($d['titel'] ?? ''), 0, 255);
+    $prio = in_array($d['prioriteit'] ?? '', ['hoog', 'normaal', 'laag'], true) ? $d['prioriteit'] : null;
+    if ($best) {
+        // Een besproken punt gaat niet vanzelf weer open; alleen tekst en toelichting bijwerken
+        q('UPDATE bespreekpunten SET titel = ?, toelichting = COALESCE(?, toelichting), project_id = COALESCE(?, project_id), prioriteit = COALESCE(?, prioriteit) WHERE id = ?',
+            [$titel ?: $best['titel'], trim((string)($d['toelichting'] ?? '')) ?: null, $pid, $prio, $best['id']]);
+        $id = (int)$best['id'];
+    } else {
+        if ($titel === '') throw new InvalidArgumentException('titel ontbreekt');
+        q('INSERT INTO bespreekpunten (titel, toelichting, project_id, prioriteit, bron, extern_id, ingebracht_door) VALUES (?,?,?,?,?,?,?)',
+            [$titel, trim((string)($d['toelichting'] ?? '')) ?: null, $pid, $prio ?? 'normaal', mb_substr(clean_text($d['bron'] ?? ''), 0, 255), $ext, mb_substr($door, 0, 100)]);
+        $id = (int)db()->lastInsertId();
+    }
+    return ['id' => $id, 'nieuw' => !$best] + q('SELECT titel, prioriteit, status, besluit FROM bespreekpunten WHERE id = ?', [$id])->fetch();
+}
