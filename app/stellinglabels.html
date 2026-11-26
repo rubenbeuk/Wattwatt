@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<title>Stellinglabels projecten</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e9ece8; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #111; }
+  .hint { max-width: 210mm; margin: 12px auto; font-size: 14px; color: #333; }
+  .hint button { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: #14532d; color: #fff; cursor: pointer; }
+  .vel { width: 210mm; height: 297mm; margin: 0 auto 24px; background: #fff; padding: 14mm 15mm 12mm; display: flex; flex-direction: column; align-items: center; text-align: center; overflow: hidden; break-after: page; }
+  .vel:last-of-type { break-after: auto; }
+  .top { font-weight: 800; font-size: 15pt; color: #14532d; letter-spacing: .02em; }
+  .bolt { color: #f5c518; background: #14532d; border-radius: 6px; padding: 0 2mm; }
+  .wat { font-size: 20pt; margin: 6mm 0 0; color: #333; }
+  .nr { font-size: 92pt; font-weight: 900; line-height: 1; margin: 2mm 0 3mm; letter-spacing: -.02em; }
+  .klant { font-size: 26pt; font-weight: 700; line-height: 1.15; margin: 0; }
+  .plek { font-size: 16pt; color: #444; margin: 2mm 0 0; }
+  .sys { font-size: 13pt; color: #555; margin: 1.5mm 0 0; }
+  .datum { margin-top: 5mm; font-size: 17pt; font-weight: 800; background: #fff4d6; border: 2px solid #b45309; color: #7a3a00; border-radius: 4mm; padding: 2mm 7mm; }
+  .qr { width: 95mm; height: 95mm; margin-top: 8mm; }
+  .qr img, .qr canvas { width: 95mm !important; height: 95mm !important; image-rendering: pixelated; }
+  .uitleg { font-size: 13.5pt; margin: 5mm 0 0; line-height: 1.45; }
+  .voet { margin-top: auto; font-size: 10.5pt; color: #555; }
+  @media print { body { background: #fff; } .hint { display: none; } .vel { margin: 0; } }
+</style>
+</head>
+<body>
+<div class="hint"><button onclick="window.print()">🖨 Printen</button> &nbsp; 6 vellen A4, schaal 100%, kop- en voetteksten uit.</div>
+
+<div id="vellen"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+  const APP = 'https://voorraad.ruben-06c.workers.dev/lookup.php?q=';
+  const projecten = [
+    { nr: 'PRJ-300', klant: 'Actie Hove', plek: 'Menno Houdijk · Stavenisse', sys: 'Hoymiles 100 kW / 215 kWh' },
+    { nr: 'PRJ-297', klant: 'Verdoold V.O.F.', plek: 'Bonrepas 5A · Vlist', sys: 'Hoymiles 215 kWh' },
+    { nr: 'PRJ-293', klant: 'Tolpoort (G.M.J. Korse)', plek: 'Tolweg 7 · Hoogkarspel', sys: '4× Hoymiles 125 kW / 261 kWh + STS' },
+    { nr: 'PRJ-296', klant: 'Oostendorp BV', plek: 'Reijerscop 23 · Utrecht', sys: '4× Hoymiles 125 kW / 261 kWh + 2× DC-lader 160 kW' },
+    { nr: 'PRJ-251', klant: 'Bouthoorn', plek: 'Nieuw Almersdorperweg 1 · Middenmeer', sys: 'Dyness 420 kW / 836 kWh' },
+    { nr: 'PRJ-242', klant: 'Bosma', plek: 'Heereburen 8 · Niehove', sys: '2× Hoymiles 125 kW / 261 kWh' },
+  ];
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const box = document.getElementById('vellen');
+  projecten.forEach((p) => {
+    const v = document.createElement('div');
+    v.className = 'vel';
+    v.innerHTML = `
+      <div class="top"><span class="bolt">⚡</span> Watt Watt · Materiaal klaarleggen</div>
+      <p class="wat">Materiaal voor</p>
+      <div class="nr">${esc(p.nr)}</div>
+      <p class="klant">${esc(p.klant)}</p>
+      <p class="plek">${esc(p.plek)}</p>
+      <p class="sys">${esc(p.sys)}</p>
+      ${p.datum ? `<div class="datum">${esc(p.datum)}</div>` : ''}
+      <div class="qr"></div>
+      <p class="uitleg"><b>Scan</b> deze code: ${esc(p.nr)} wordt je actieve project.<br>
+        Daarna zie je in de app wat hier klaar moet liggen, en alles wat je pakt gaat op ${esc(p.nr)}.</p>
+      <p class="voet">Alleen materiaal voor ${esc(p.nr)} op deze plank · voorraad.ruben-06c.workers.dev</p>`;
+    box.appendChild(v);
+    new QRCode(v.querySelector('.qr'), { text: APP + encodeURIComponent('PROJECT:' + p.nr), width: 760, height: 760, correctLevel: QRCode.CorrectLevel.M });
+  });
+</script>
+</body>
+</html>

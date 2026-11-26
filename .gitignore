@@ -1,0 +1,35 @@
+# Data met mail-, klant- en persoonsgegevens
+brein/*.json
+dashboard/*.json
+adres-aanvullen/*.json
+adres-aanvullen/log.md
+
+# Back-ups, archieven, rapporten, testlabels
+*.bak*
+Archief/
+Dagrapporten/
+labels-test/
+voorraad-fotos/
+
+# Kantoorbestanden en dumps
+*.xlsx
+*.docx
+*.pdf
+*.sql
+*.gz
+
+# Echte config en geheimen
+voorraad-config.php
+config.php
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+*token*
+
+# Systeem
+.DS_Store
+__pycache__/
+*.pyc

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<title>Pilot voorraadapp – poster</title>
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e9ece8; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #111; }
+  .hint { max-width: 210mm; margin: 12px auto; font-size: 14px; color: #333; }
+  .hint button { font: inherit; padding: 8px 16px; border-radius: 8px; border: 0; background: #14532d; color: #fff; cursor: pointer; }
+  .poster { width: 210mm; height: 297mm; margin: 0 auto 24px; background: #fff; padding: 15mm 16mm 12mm; display: flex; flex-direction: column; align-items: center; text-align: center; overflow: hidden; }
+  .top { font-weight: 800; font-size: 16pt; color: #14532d; }
+  .bolt { color: #f5c518; background: #14532d; border-radius: 6px; padding: 0 2mm; }
+  h1 { font-size: 36pt; line-height: 1.05; margin: 5mm 0 1mm; }
+  .sub { font-size: 15pt; margin: 0 0 5mm; color: #333; }
+  #qr { width: 105mm; height: 105mm; }
+  #qr img, #qr canvas { width: 105mm !important; height: 105mm !important; image-rendering: pixelated; }
+  .url { font-size: 13pt; font-weight: 600; margin: 3mm 0 6mm; color: #333; }
+  .logins { width: 100%; border: 2.5px solid #14532d; border-radius: 5mm; padding: 4mm 6mm; margin-bottom: 6mm; }
+  .logins h2 { margin: 0 0 3mm; font-size: 15pt; color: #14532d; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .acc { background: #f2f6f1; border-radius: 3mm; padding: 3mm; }
+  .acc span { display: block; font-size: 10pt; color: #555; }
+  .acc b { display: block; font-size: 19pt; font-family: ui-monospace, Menlo, monospace; margin: 0.5mm 0 1.5mm; }
+  .acc b.pw { font-size: 15pt; }
+  ol { text-align: left; font-size: 13.5pt; line-height: 1.5; margin: 0 0 auto; padding-left: 8mm; }
+  .foot { font-size: 10.5pt; color: #444; margin-top: 4mm; }
+  @media print { body { background: #fff; } .hint { display: none; } .poster { margin: 0; } }
+</style>
+</head>
+<body>
+<div class="hint"><button onclick="window.print()">🖨 Printen</button> &nbsp; A4, schaal 100%, kop- en voetteksten uit. Gooi dit bestand na het printen weg: er staan wachtwoorden in.</div>
+<div class="poster">
+  <div class="top"><span class="bolt">⚡</span> Watt Watt Voorraad</div>
+  <h1>Pilot: test de voorraadapp!</h1>
+  <p class="sub">Scan de code met de camera van je telefoon</p>
+  <div id="qr"></div>
+  <p class="url">voorraad.ruben-06c.workers.dev</p>
+  <div class="logins">
+    <h2>Inloggen</h2>
+    <div class="grid">
+      <div class="acc"><span>Gebruikersnaam</span><b>boris</b><span>Wachtwoord</span><b class="pw">wattwatt</b></div>
+      <div class="acc"><span>Gebruikersnaam</span><b>sander</b><span>Wachtwoord</span><b class="pw">wattwatt</b></div>
+      <div class="acc"><span>Gebruikersnaam</span><b>julian</b><span>Wachtwoord</span><b class="pw">wattwatt</b></div>
+    </div>
+  </div>
+  <ol>
+    <li><b>Project kiezen:</b> vul het projectnummer in (bijv. 289) of scan het projectlabel</li>
+    <li><b>Scannen:</b> barcode op de verpakking of QR-label op de bak, of typ de naam</li>
+    <li><b>Pakken:</b> aantal invullen, klaar. Teruggebracht? Kies "Terugbrengen"</li>
+  </ol>
+  <p class="foot">Tip: zet de app op je beginscherm (Deel → Zet op beginscherm). Iets raars gezien of een idee? Meld het bij Ruben.</p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>new QRCode(document.getElementById('qr'), { text: 'https://voorraad.ruben-06c.workers.dev/', width: 800, height: 800, correctLevel: QRCode.CorrectLevel.M });</script>
+</body>
+</html>
