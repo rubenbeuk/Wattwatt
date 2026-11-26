@@ -473,9 +473,102 @@ try {
                    WHERE b.status = 'open'" . ($sinds ? ' OR (b.status = \'besproken\' AND b.besproken_op >= ?)' : '') . " ORDER BY FIELD(b.prioriteit, 'hoog', 'normaal', 'laag'), b.id", $sinds ? [$sinds] : [])->fetchAll());
             break;
 
+        // --- WhatsApp ---
+        // Van Rubens Mac (whatsapp_naar_app.py): {"chats":[{"jid":"..","naam":"..","proef":"3 korte regels"}], "berichten":[{"bron_id":123,"jid":"..","tijd":"2026-11-26 17:05","van":"..","ik":0,"tekst":".."}]}
+        // Chats die nog niet ingedeeld zijn komen als 'nieuw' binnen (alleen met proefregels). Berichten worden alleen bewaard voor chats die zakelijk zijn.
+        case 'whatsapp_in':
+            $nc = 0; $nb = 0;
+            foreach (array_slice((array)($d['chats'] ?? []), 0, 500) as $c) {
+                $jid = mb_substr(trim((string)($c['jid'] ?? '')), 0, 100);
+                if ($jid === '') continue;
+                // "soort" (zakelijk/prive) neemt de oude indeling van de Mac over, alleen voor chats die hier nog 'nieuw' zijn
+                $soort = in_array($c['soort'] ?? '', ['zakelijk', 'prive'], true) ? $c['soort'] : 'nieuw';
+                $proef = $soort === 'nieuw' ? mb_substr((string)($c['proef'] ?? ''), 0, 1000) : null;
+                $nc += q("INSERT INTO wa_chats (jid, naam, soort, proef, ingedeeld_door) VALUES (?, ?, ?, ?, IF(? = 'nieuw', '', 'Mac'))
+                          ON DUPLICATE KEY UPDATE naam = VALUES(naam), soort = IF(soort = 'nieuw' AND VALUES(soort) <> 'nieuw', VALUES(soort), soort),
+                          proef = IF(soort = 'nieuw', VALUES(proef), NULL)",
+                    [$jid, mb_substr(clean_text((string)($c['naam'] ?? '')), 0, 150), $soort, $proef, $soort])->rowCount() === 1 ? 1 : 0;
+            }
+            $zak = array_flip(q("SELECT jid FROM wa_chats WHERE soort = 'zakelijk'")->fetchAll(PDO::FETCH_COLUMN));
+            foreach (array_slice((array)($d['berichten'] ?? []), 0, 5000) as $b) {
+                $jid = (string)($b['jid'] ?? ''); $tijd = (string)($b['tijd'] ?? '');
+                if (!isset($zak[$jid]) || !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/', $tijd) || (int)($b['bron_id'] ?? 0) <= 0) continue;
+                $nb += q('INSERT IGNORE INTO wa_berichten (bron_id, jid, tijd, van, ik, tekst) VALUES (?, ?, ?, ?, ?, ?)',
+                    [(int)$b['bron_id'], $jid, $tijd, mb_substr((string)($b['van'] ?? ''), 0, 150), !empty($b['ik']) ? 1 : 0, mb_substr((string)($b['tekst'] ?? ''), 0, 2000)])->rowCount();
+            }
+            q('DELETE FROM wa_berichten WHERE tijd < NOW() - INTERVAL 45 DAY');
+            uit(['nieuwe_chats' => $nc, 'nieuwe_berichten' => $nb]);
+            break;
+
+        // Indeling van de chats (de Mac haalt deze op om te weten wat hij mag sturen). {} = alles; {"soort":"nieuw"} = alleen nog in te delen, met proefregels
+        case 'whatsapp_chats':
+            $s = in_array($d['soort'] ?? '', ['nieuw', 'zakelijk', 'prive'], true) ? $d['soort'] : null;
+            uit(q('SELECT jid, naam, soort' . ($s === 'nieuw' ? ', proef' : '') . ' FROM wa_chats' . ($s ? ' WHERE soort = ?' : '') . ' ORDER BY naam', $s ? [$s] : [])->fetchAll());
+            break;
+
+        // Chat indelen. {"jid":"..","soort":"zakelijk|prive"}. Bij prive gaan de proefregels weg.
+        case 'whatsapp_indelen':
+            if (!in_array($d['soort'] ?? '', ['zakelijk', 'prive'], true)) { uit(['fout' => 'soort moet zakelijk of prive zijn']); exit(1); }
+            $n = q("UPDATE wa_chats SET soort = ?, proef = NULL, ingedeeld_door = 'Claude' WHERE jid = ?", [$d['soort'], (string)($d['jid'] ?? '')])->rowCount();
+            if ($d['soort'] === 'prive') q('DELETE FROM wa_berichten WHERE jid = ?', [(string)($d['jid'] ?? '')]);
+            uit(['jid' => (string)($d['jid'] ?? ''), 'soort' => $d['soort'], 'gevonden' => $n > 0 || (bool)q('SELECT 1 FROM wa_chats WHERE jid = ?', [(string)($d['jid'] ?? '')])->fetch()]);
+            break;
+
+        // Zakelijke berichten lezen, per chat als tekst (zelfde vorm als zakelijk.txt). {"sinds":"2026-11-26 07:00"} (Nederlandse tijd) of {"ontvangen_sinds": ..} voor wat sinds de vorige run binnenkwam.
+        // Geeft ook "laatste_ontvangst": wanneer de Mac voor het laatst iets stuurde (staat de Mac uit, dan loopt dit achter).
+        case 'whatsapp':
+            $kol = !empty($d['ontvangen_sinds']) ? 'b.ontvangen' : 'b.tijd';
+            $sinds = (string)($d['ontvangen_sinds'] ?? $d['sinds'] ?? date('Y-m-d H:i', time() - 86400));
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/', $sinds)) { uit(['fout' => 'sinds moet JJJJ-MM-DD UU:MM zijn']); exit(1); }
+            $rijen = q("SELECT c.naam, b.tijd, b.van, b.tekst FROM wa_berichten b JOIN wa_chats c ON c.jid = b.jid WHERE c.soort = 'zakelijk' AND $kol >= ? ORDER BY c.naam, b.tijd LIMIT 3000", [$sinds])->fetchAll();
+            $per = [];
+            foreach ($rijen as $r) $per[$r['naam']][] = date('d-m H:i', strtotime($r['tijd'])) . ' ' . $r['van'] . ': ' . $r['tekst'];
+            $tekst = implode("\n\n", array_map(fn($n, $rr) => "=== $n\n" . implode("\n", $rr), array_keys($per), $per));
+            uit(['chats' => count($per), 'berichten' => count($rijen), 'laatste_ontvangst' => q('SELECT MAX(ontvangen) FROM wa_berichten')->fetchColumn(),
+                'nog_in_te_delen' => (int)q("SELECT COUNT(*) FROM wa_chats WHERE soort = 'nieuw'")->fetchColumn(), 'tekst' => $tekst]);
+            break;
+
+        // --- Stand van het brein ---
+        // Slot: {"wie":"cloud-licht","minuten":50} neemt het slot als het vrij of verlopen is. Antwoord {"ok":true} of {"ok":false,"bezet_door":..,"tot":..}.
+        case 'brein_slot':
+            $wie = mb_substr(clean_text((string)($d['wie'] ?? '')), 0, 50);
+            $min = max(5, min(240, (int)($d['minuten'] ?? 60)));
+            if ($wie === '') { uit(['fout' => 'wie ontbreekt']); exit(1); }
+            $pdo = db(); $pdo->beginTransaction();
+            $r = q("SELECT waarde FROM brein_stand WHERE sleutel = 'slot' FOR UPDATE")->fetch();
+            $nu = q('SELECT UTC_TIMESTAMP()')->fetchColumn();
+            $oud = $r ? json_decode($r['waarde'], true) : null;
+            if ($oud && ($oud['tot'] ?? '') > $nu && ($oud['wie'] ?? '') !== $wie) { $pdo->commit(); uit(['ok' => false, 'bezet_door' => $oud['wie'], 'sinds' => $oud['sinds'] ?? '', 'tot' => $oud['tot']]); break; }
+            $nieuw = ['wie' => $wie, 'sinds' => $nu];
+            $nieuw['tot'] = gmdate('Y-m-d H:i:s', strtotime($nu . ' UTC') + 60 * $min);
+            q("INSERT INTO brein_stand (sleutel, waarde) VALUES ('slot', ?) ON DUPLICATE KEY UPDATE waarde = VALUES(waarde)", [json_encode($nieuw)]);
+            $pdo->commit();
+            uit(['ok' => true] + $nieuw);
+            break;
+
+        // Slot vrijgeven aan het eind van een run. {"wie":"cloud-licht"} (alleen als dat slot van deze run is)
+        case 'brein_slot_vrij':
+            $r = q("SELECT waarde FROM brein_stand WHERE sleutel = 'slot'")->fetch();
+            $oud = $r ? json_decode($r['waarde'], true) : null;
+            if ($oud && ($oud['wie'] ?? '') === (string)($d['wie'] ?? '')) q("DELETE FROM brein_stand WHERE sleutel = 'slot'");
+            uit(['ok' => true]);
+            break;
+
+        // Kleine standen lezen of zetten (watermerken, laatste run). {"sleutel":"licht_laatste"} leest; met "waarde" (tekst of JSON) zet. {} geeft alles.
+        case 'brein_stand':
+            if (empty($d['sleutel'])) { uit(q("SELECT sleutel, waarde, bijgewerkt FROM brein_stand WHERE sleutel <> 'slot' ORDER BY sleutel")->fetchAll()); break; }
+            $k = mb_substr((string)$d['sleutel'], 0, 100);
+            if (array_key_exists('waarde', $d)) {
+                $w = is_string($d['waarde']) ? $d['waarde'] : json_encode($d['waarde'], JSON_UNESCAPED_UNICODE);
+                q('INSERT INTO brein_stand (sleutel, waarde) VALUES (?, ?) ON DUPLICATE KEY UPDATE waarde = VALUES(waarde)', [$k, mb_substr($w, 0, 60000)]);
+            }
+            $r = q('SELECT waarde, bijgewerkt FROM brein_stand WHERE sleutel = ?', [$k])->fetch();
+            uit(['sleutel' => $k, 'waarde' => $r ? (json_decode($r['waarde'], true) ?? $r['waarde']) : null, 'bijgewerkt' => $r['bijgewerkt'] ?? null]);
+            break;
+
         default:
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'whatsapp_in', 'whatsapp_chats', 'whatsapp_indelen', 'whatsapp', 'brein_slot', 'brein_slot_vrij', 'brein_stand']]);
     }
 } catch (Throwable $e) {
     if (db()->inTransaction()) db()->rollBack();
