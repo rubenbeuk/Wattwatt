@@ -30,6 +30,19 @@ def main():
         arg = sys.argv[2]
         invoer = open(arg, encoding='utf-8').read() if os.path.isfile(arg) else arg
         json.loads(invoer)  # eerst controleren dat het geldige JSON is
+    # Via HTTP (api_brein.php) als VAPP_URL en VAPP_SLEUTEL gezet zijn: dan is geen SSH-sleutel nodig en kan het brein ook in de cloud draaien
+    url = os.environ.get('VAPP_URL')
+    if url and os.environ.get('VAPP_SLEUTEL'):
+        import urllib.request, urllib.error
+        req = urllib.request.Request(url.rstrip('/') + '/api_brein.php?opdracht=' + opdracht, data=invoer.encode('utf-8'), method='POST',
+                                     headers={'Authorization': 'Bearer ' + os.environ['VAPP_SLEUTEL'], 'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                sys.stdout.write(resp.read().decode('utf-8'))
+                return 0
+        except urllib.error.HTTPError as e:
+            sys.stdout.write(e.read().decode('utf-8', 'replace'))
+            return 1
     r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-i', SLEUTEL, HOST, f'{CLI} {opdracht}'],
                        input=invoer, capture_output=True, text=True, timeout=120)
     sys.stdout.write(r.stdout)

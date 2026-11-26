@@ -14,4 +14,6 @@ return [
     // Webformulier service (wattwatt.nl/service) stuurt tickets naar /api_ticket.php met deze sleutel in de header X-WW-Sleutel.
     // Maak een lange willekeurige reeks, bijv.:  php -r 'echo bin2hex(random_bytes(24));'
     'ticket_sleutel' => '',
+    // Brein via HTTP (api_brein.php) in plaats van root-SSH. Minimaal 32 tekens, bijv.:  php -r 'echo bin2hex(random_bytes(24));'
+    'brein_sleutel' => '',
 ];
