@@ -500,3 +500,64 @@ function ticket_fase(int $pid, string $fase): void
     if (!isset(SERVICE_FASES[$fase])) throw new InvalidArgumentException('onbekende fase');
     q('UPDATE projecten SET fase = ?, afgerond = ?, opgelost_op = ' . ($fase === 'opgelost' ? 'COALESCE(opgelost_op, UTC_TIMESTAMP())' : 'NULL') . ' WHERE id = ?', [$fase, $fase === 'opgelost' ? 1 : 0, $pid]);
 }
+
+// ---------- Agenda ----------
+/** Tijd "2026-12-03 14:30" (Nederlandse tijd) of null. */
+function geldige_tijd($t): ?string
+{
+    $t = trim(str_replace('T', ' ', (string)$t));
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $t)) $t .= ' 00:00';
+    $d = DateTime::createFromFormat('Y-m-d H:i', substr($t, 0, 16), new DateTimeZone('Europe/Amsterdam'));
+    return $d ? $d->format('Y-m-d H:i:00') : null;
+}
+/**
+ * Afspraak aanmaken of bijwerken (zelfde extern_id = zelfde afspraak).
+ * {"titel":"..","start":"2026-12-03 14:30","eind":"2026-12-03 15:00","hele_dag":false,"wie":"ruben","project":"PRJ-293","locatie":"..","notitie":"..","bron":"..","extern_id":".."}
+ * "geannuleerd":true zegt een afspraak af (hij blijft bewaard en verdwijnt uit de agenda).
+ */
+function afspraak_opslaan(array $d, string $door): array
+{
+    $ext = clean_text($d['extern_id'] ?? '') ?: null;
+    $best = $ext ? q('SELECT * FROM afspraken WHERE extern_id = ?', [$ext])->fetch() : null;
+    if (!$best && !empty($d['id'])) $best = q('SELECT * FROM afspraken WHERE id = ?', [(int)$d['id']])->fetch() ?: null;
+    $wie = ($d['wie'] ?? '') !== '' ? gebruiker_zoek((string)$d['wie']) : null;
+    if (($d['wie'] ?? '') !== '' && !$wie) throw new InvalidArgumentException('onbekend: ' . $d['wie']);
+    $pid = ($d['project'] ?? '') !== '' ? (q('SELECT id FROM projecten WHERE nummer = ?', [project_nummer((string)$d['project'])])->fetch()['id'] ?? null) : null;
+    $start = array_key_exists('start', $d) ? geldige_tijd($d['start']) : ($best['start'] ?? null);
+    if (!$start) throw new InvalidArgumentException('start ontbreekt of is ongeldig (JJJJ-MM-DD UU:MM)');
+    $heleDag = array_key_exists('hele_dag', $d) ? (!empty($d['hele_dag']) ? 1 : 0) : (int)($best['hele_dag'] ?? (preg_match('/^\d{4}-\d{2}-\d{2}$/', trim((string)($d['start'] ?? ''))) ? 1 : 0));
+    $eind = array_key_exists('eind', $d) ? geldige_tijd($d['eind']) : ($best['eind'] ?? null);
+    if (!$eind && !$heleDag) $eind = date('Y-m-d H:i:00', strtotime($start . ' +30 minutes'));
+    $v = [
+        'titel' => mb_substr(clean_text($d['titel'] ?? ($best['titel'] ?? '')), 0, 255),
+        'gebruiker_id' => $wie ?? ($best['gebruiker_id'] ?? null), 'project_id' => $pid ?? ($best['project_id'] ?? null),
+        'start' => $start, 'eind' => $eind, 'hele_dag' => $heleDag,
+        'locatie' => mb_substr(clean_text($d['locatie'] ?? ($best['locatie'] ?? '')), 0, 255),
+        'notitie' => array_key_exists('notitie', $d) ? (trim((string)$d['notitie']) ?: null) : ($best['notitie'] ?? null),
+        'bron' => mb_substr(clean_text($d['bron'] ?? ($best['bron'] ?? '')), 0, 255),
+        'geannuleerd' => array_key_exists('geannuleerd', $d) ? (!empty($d['geannuleerd']) ? 1 : 0) : (int)($best['geannuleerd'] ?? 0),
+    ];
+    if ($v['titel'] === '') throw new InvalidArgumentException('titel ontbreekt');
+    if ($best) {
+        q('UPDATE afspraken SET ' . implode(', ', array_map(fn($k) => "$k = ?", array_keys($v))) . ' WHERE id = ?', [...array_values($v), $best['id']]);
+        $id = (int)$best['id'];
+    } else {
+        q('INSERT INTO afspraken (' . implode(', ', array_keys($v)) . ', extern_id, aangemaakt_door) VALUES (' . str_repeat('?,', count($v)) . '?, ?)', [...array_values($v), $ext, mb_substr($door, 0, 100)]);
+        $id = (int)db()->lastInsertId();
+        if ($v['gebruiker_id'] && $door !== '' && (user()['id'] ?? 0) !== (int)$v['gebruiker_id'])
+            seintje((int)$v['gebruiker_id'], 'Nieuwe afspraak: ' . mb_substr($v['titel'], 0, 120) . ' (' . datum_kort(substr($start, 0, 10)) . ($heleDag ? '' : ' ' . substr($start, 11, 5)) . ')', 'agenda.php');
+    }
+    return ['id' => $id, 'nieuw' => !$best] + afspraak_rij($id);
+}
+function afspraak_rij(int $id): array
+{
+    return q("SELECT a.titel, a.start, a.eind, a.hele_dag, a.locatie, a.geannuleerd, g.gebruikersnaam AS wie, p.nummer AS project, a.extern_id
+              FROM afspraken a LEFT JOIN gebruikers g ON g.id = a.gebruiker_id LEFT JOIN projecten p ON p.id = a.project_id WHERE a.id = ?", [$id])->fetch() ?: [];
+}
+/** Persoonlijke sleutel voor het agenda-abonnement; nieuw = de oude link werkt niet meer. */
+function agenda_token(int $gid, bool $nieuw = false): string
+{
+    $t = q('SELECT agenda_token FROM gebruikers WHERE id = ?', [$gid])->fetch()['agenda_token'] ?? null;
+    if (!$t || $nieuw) { $t = bin2hex(random_bytes(20)); q('UPDATE gebruikers SET agenda_token = ? WHERE id = ?', [$t, $gid]); }
+    return $t;
+}

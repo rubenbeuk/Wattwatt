@@ -270,6 +270,28 @@ function schema_migreren(): array
   KEY idx_pm_project (project_id, datum),
   CONSTRAINT fk_pm_project FOREIGN KEY (project_id) REFERENCES projecten(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Agenda (26-11-2026): afspraken met een vast tijdstip, vervangt Pipedrive-activiteiten; per persoon een agenda-abonnement (ICS) voor Outlook en iPhone ---
+"CREATE TABLE IF NOT EXISTS afspraken (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  gebruiker_id INT UNSIGNED NULL,
+  project_id INT UNSIGNED NULL,
+  titel VARCHAR(255) NOT NULL,
+  start DATETIME NOT NULL,
+  eind DATETIME NULL,
+  hele_dag TINYINT(1) NOT NULL DEFAULT 0,
+  locatie VARCHAR(255) NOT NULL DEFAULT '',
+  notitie TEXT NULL,
+  bron VARCHAR(255) NOT NULL DEFAULT '',
+  extern_id VARCHAR(150) NULL UNIQUE,
+  aangemaakt_door VARCHAR(100) NOT NULL DEFAULT '',
+  geannuleerd TINYINT(1) NOT NULL DEFAULT 0,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (gebruiker_id, start), INDEX (project_id), INDEX (start),
+  CONSTRAINT fk_af_project FOREIGN KEY (project_id) REFERENCES projecten(id),
+  CONSTRAINT fk_af_gebruiker FOREIGN KEY (gebruiker_id) REFERENCES gebruikers(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ];
     foreach ($basis as $sql) { $pdo->exec($sql); }
 
@@ -307,6 +329,7 @@ function schema_migreren(): array
         ['projecten', 'extern_ref', "VARCHAR(64) NULL AFTER email"],
         ['projecten', 'opgelost_op', "DATETIME NULL AFTER extern_ref"],
         ['projecten', 'pipedrive_deal_id', "INT UNSIGNED NULL AFTER pipedrive_id"],
+        ['gebruikers', 'agenda_token', "VARCHAR(48) NULL AFTER beslisser"],
     ];
     foreach ($kolommen as [$tabel, $kolom, $def]) {
         $bestaat = q("SELECT COUNT(*) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [$tabel, $kolom])->fetch()['c'];
