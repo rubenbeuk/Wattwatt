@@ -292,6 +292,21 @@ function schema_migreren(): array
         ['projecten', 'pipedrive_id', "INT UNSIGNED NULL AFTER samenvatting_op"],
         ['gebruikers', 'beslisser', "TINYINT(1) NOT NULL DEFAULT 0 AFTER planbaar"],
         ['taken', 'van_id', "INT UNSIGNED NULL AFTER eigenaar_id"],
+        // Overstap van Pipedrive Projects (26-11-2026): service-tickets en projectgegevens uit Pipedrive
+        ['projecten', 'soort', "VARCHAR(10) NOT NULL DEFAULT 'project' AFTER nummer"],
+        ['projecten', 'startdatum', "DATE NULL AFTER fase"],
+        ['projecten', 'einddatum', "DATE NULL AFTER startdatum"],
+        ['projecten', 'labels', "VARCHAR(255) NOT NULL DEFAULT '' AFTER systeem"],
+        ['projecten', 'beschrijving', "TEXT NULL AFTER labels"],
+        ['projecten', 'apparaat', "VARCHAR(20) NOT NULL DEFAULT '' AFTER beschrijving"],
+        ['projecten', 'urgentie', "VARCHAR(20) NOT NULL DEFAULT '' AFTER apparaat"],
+        ['projecten', 'afhandeling', "VARCHAR(20) NOT NULL DEFAULT '' AFTER urgentie"],
+        ['projecten', 'foutcode', "VARCHAR(100) NOT NULL DEFAULT '' AFTER afhandeling"],
+        ['projecten', 'telefoon', "VARCHAR(50) NOT NULL DEFAULT '' AFTER foutcode"],
+        ['projecten', 'email', "VARCHAR(150) NOT NULL DEFAULT '' AFTER telefoon"],
+        ['projecten', 'extern_ref', "VARCHAR(64) NULL AFTER email"],
+        ['projecten', 'opgelost_op', "DATETIME NULL AFTER extern_ref"],
+        ['projecten', 'pipedrive_deal_id', "INT UNSIGNED NULL AFTER pipedrive_id"],
     ];
     foreach ($kolommen as [$tabel, $kolom, $def]) {
         $bestaat = q("SELECT COUNT(*) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [$tabel, $kolom])->fetch()['c'];
@@ -303,5 +318,10 @@ function schema_migreren(): array
     }
     $idx = q("SELECT COUNT(*) c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'producten' AND INDEX_NAME = 'idx_levcode'")->fetch()['c'];
     if (!$idx) { $pdo->exec("ALTER TABLE producten ADD INDEX idx_levcode (leverancier_code)"); }
+    foreach ([['projecten', 'idx_soort', 'ADD INDEX idx_soort (soort, fase)'], ['projecten', 'idx_pipedrive', 'ADD INDEX idx_pipedrive (pipedrive_id)'], ['projecten', 'uq_extern_ref', 'ADD UNIQUE INDEX uq_extern_ref (extern_ref)']] as [$t, $naam, $sql]) {
+        if (!q("SELECT COUNT(*) c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?", [$t, $naam])->fetch()['c']) {
+            $pdo->exec("ALTER TABLE `$t` $sql"); $log[] = "index $t.$naam toegevoegd";
+        }
+    }
     return $log;
 }

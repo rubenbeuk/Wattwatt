@@ -17,8 +17,7 @@ import json, os, subprocess, sys
 HOST = 'root@188.166.16.61'
 SLEUTEL = os.path.expanduser('~/.ssh/wattwatt_voorraad')
 CLI = 'php /var/www/voorraad-test/public_html/inc/cli.php' if os.environ.get('VAPP_DOEL') == 'test' else 'php /var/www/voorraad/public_html/inc/cli.php'
-OPDRACHTEN = {'bestellingen', 'bestelling', 'geleverd', 'factuur', 'materiaallijst', 'project', 'bestellijst', 'zoek', 'product', 'migreer', 'help',
-              'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'taak_samenvoegen', 'taak_vervalt', 'taak_status', 'project_bericht', 'project_samenvatting', 'project_berichten', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'projecten', 'project_opruimen', 'mijlpaal', 'mijlpalen'}
+OPDRACHTEN = {'bestellijst', 'bestelling', 'bestellingen', 'dagopdracht', 'dagstatus', 'factuur', 'geleverd', 'help', 'instructies', 'materiaallijst', 'mens', 'mensen', 'migreer', 'mijlpaal', 'mijlpalen', 'notitie_verwerkt', 'notities', 'pipedrive_import', 'plan_voorstel', 'plan_zet', 'planning', 'product', 'project', 'project_bericht', 'project_berichten', 'project_info', 'project_opruimen', 'project_samenvatting', 'projecten', 'taak', 'taak_klaar', 'taak_samenvoegen', 'taak_status', 'taak_vervalt', 'taken', 'ticket', 'tickets', 'voorstellen', 'zoek'}
 
 
 def main():

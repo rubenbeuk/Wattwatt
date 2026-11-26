@@ -7,6 +7,7 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require __DIR__ . '/bootstrap.php';
 require __DIR__ . '/schema.php';
 require __DIR__ . '/materiaal.php';
+require __DIR__ . '/pipedrive.php';
 
 $opdracht = $argv[1] ?? 'help';
 // Invoer (JSON) via stdin; bij opdrachten zonder invoer niet wachten
@@ -282,7 +283,7 @@ try {
         // Projectgegevens aanvullen (alleen lege velden, tenzij "overschrijf":true). {"project":"PRJ-284","naam":"..","klant":"..","adres":"..","contact":".."}
         // Alle projecten met fase (alleen lezen). {} of {"alle":true} om ook afgevinkte te zien
         case 'projecten':
-            uit(q('SELECT nummer, omschrijving AS naam, klant, fase, afgerond, opleverdatum, kwh, aangemaakt FROM projecten' . (empty($d['alle']) ? ' WHERE afgerond = 0' : '') . ' ORDER BY nummer')->fetchAll());
+            uit(q('SELECT nummer, soort, omschrijving AS naam, klant, fase, afgerond, opleverdatum, kwh, aangemaakt FROM projecten' . (empty($d['alle']) ? ' WHERE afgerond = 0' : '') . ' ORDER BY nummer')->fetchAll());
             break;
 
         // Lege projecten opruimen die per ongeluk zijn aangemaakt: geen naam, klant of adres, fase nieuw, door de CLI gemaakt in de laatste N minuten
@@ -315,15 +316,18 @@ try {
             }
             // Fase (sleutel of Pipedrive phase_id), opleverdatum en kWh: altijd bijwerken als ze zijn meegegeven
             if (isset($d['fase'])) {
-                $f = is_numeric($d['fase']) ? fase_van_pipedrive((int)$d['fase']) : (isset(FASES[$d['fase']]) ? $d['fase'] : null);
-                if (!$f) { uit(['fout' => 'onbekende fase: ' . $d['fase']]); exit(1); }
-                q('UPDATE projecten SET fase = ? WHERE id = ?', [$f, $pid]);
+                $soort = $nu['soort'] ?? 'project';
+                $bf = is_numeric($d['fase']) ? fase_van_pipedrive_bord((int)$d['fase']) : null;
+                $f = $bf ? ($bf[0] === $soort ? $bf[1] : null) : (isset(fases($soort)[$d['fase']]) ? $d['fase'] : null);
+                if (!$f) { uit(['fout' => 'onbekende fase voor ' . $soort . ': ' . $d['fase']]); exit(1); }
+                if ($soort === 'service') ticket_fase($pid, $f); else q('UPDATE projecten SET fase = ? WHERE id = ?', [$f, $pid]);
             }
+            foreach (['startdatum', 'einddatum'] as $k) if (array_key_exists($k, $d)) q("UPDATE projecten SET $k = ? WHERE id = ?", [geldige_datum($d[$k]), $pid]);
             if (array_key_exists('opleverdatum', $d)) q('UPDATE projecten SET opleverdatum = ? WHERE id = ?', [geldige_datum($d['opleverdatum']), $pid]);
             if (!empty($d['kwh'])) q('UPDATE projecten SET kwh = ? WHERE id = ?', [(int)$d['kwh'], $pid]);
             if (isset($d['afgerond'])) q('UPDATE projecten SET afgerond = ? WHERE id = ?', [$d['afgerond'] ? 1 : 0, $pid]);
             if (!empty($d['pipedrive_id'])) q('UPDATE projecten SET pipedrive_id = ? WHERE id = ?', [(int)$d['pipedrive_id'], $pid]);
-            uit(q('SELECT nummer, omschrijving AS naam, klant, adres, contact, fase, opleverdatum, kwh, systeem, afgerond FROM projecten WHERE id = ?', [$pid])->fetch());
+            uit(q('SELECT nummer, soort, omschrijving AS naam, klant, adres, contact, fase, startdatum, einddatum, opleverdatum, kwh, systeem, afgerond FROM projecten WHERE id = ?', [$pid])->fetch());
             break;
 
         // Bericht op de tijdlijn van een project (mail, WhatsApp, Teams, Pipedrive-notitie, telefoon, Claude). Zelfde extern_id = bijwerken.
@@ -391,9 +395,41 @@ try {
             uit(q('SELECT naam, gebruikersnaam, planbaar FROM gebruikers WHERE gebruikersnaam = ?', [$gn])->fetch());
             break;
 
+        // Service-ticket aanmaken of bijwerken (zie ticket_opslaan in ops.php voor alle velden). {"klant":"..","titel":"..","urgentie":"spoed",...} of {"nummer":"WW-...","fase":"uitzoeken"}
+        case 'ticket':
+            uit(ticket_opslaan($d, 'Claude'));
+            break;
+
+        // Open service-tickets (alleen lezen). {} of {"alle":true} om ook opgeloste te zien
+        case 'tickets':
+            uit(q("SELECT p.nummer, p.omschrijving AS naam, p.klant, p.fase, p.urgentie, p.apparaat, p.afhandeling, p.telefoon, p.startdatum, p.einddatum, g.gebruikersnaam AS eigenaar, p.pipedrive_id
+                   FROM projecten p LEFT JOIN gebruikers g ON g.id = p.leider_id WHERE p.soort = 'service'" . (empty($d['alle']) ? " AND p.fase <> 'opgelost'" : '') . ' ORDER BY p.startdatum, p.id')->fetchAll());
+            break;
+
+        // Overstap van Pipedrive Projects. {"bron":"api"} haalt alles zelf op (pipedrive_token in de config nodig);
+        // of geef de gegevens mee: {"projecten":[...zoals de Pipedrive-API...],"notities":{"217":[...]},"taken":{"217":[...]}}.
+        // "proef":true laat zien wat er zou gebeuren zonder iets op te slaan. Mag vaker draaien: niets wordt dubbel.
+        case 'pipedrive_import':
+            $data = ($d['bron'] ?? '') === 'api' ? pd_alles_ophalen() : $d;
+            $proef = !empty($d['proef']);
+            db()->beginTransaction();
+            $res = [];
+            foreach ($data['projecten'] ?? [] as $p) {
+                $id = (string)$p['id'];
+                $res[] = pd_project_importeren($p, $data['notities'][$id] ?? [], $data['taken'][$id] ?? []);
+            }
+            $proef ? db()->rollBack() : db()->commit();
+            $tel = ['nieuw' => 0, 'bijgewerkt' => 0, 'overgeslagen' => 0, 'notities' => 0, 'taken' => 0];
+            foreach ($res as $r) {
+                if (isset($r['overgeslagen'])) { $tel['overgeslagen']++; continue; }
+                $tel[$r['nieuw'] ? 'nieuw' : 'bijgewerkt']++; $tel['notities'] += $r['notities']; $tel['taken'] += $r['taken'];
+            }
+            uit(['proef' => $proef, 'totaal' => $tel, 'projecten' => $res]);
+            break;
+
         default:
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import']]);
     }
 } catch (Throwable $e) {
     if (db()->inTransaction()) db()->rollBack();

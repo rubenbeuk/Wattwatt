@@ -58,7 +58,38 @@ const FASES = [
     'afgerond' => ['Installatie afgerond', 43, 'afgerond'], 'factuur' => ['Factuur gestuurd', 44, 'financieel'], 'betaald' => ['Betaald', 45, 'financieel'],
 ];
 const FASE_GROEPEN = ['voorbereiding' => 'Voorbereiding', 'gepland' => 'Gepland', 'bezig' => 'Bezig', 'afgerond' => 'Afgerond', 'financieel' => 'Factuur en betaling'];
-function fase_van_pipedrive(int $phaseId): ?string { foreach (FASES as $k => $f) if ($f[1] === $phaseId) return $k; return null; }
+// Service-tickets (storingen en serviceverzoeken), zoals het bord "Service projecten" in Pipedrive. Sleutel => [naam, Pipedrive phase_id, groep]
+const SERVICE_FASES = [
+    'melding' => ['Nieuwe melding', 70, 'nieuw'], 'uitzoeken' => ['Bezig met uitzoeken', 71, 'bezig'], 'op_locatie' => ['Locatie in te plannen', 72, 'inplannen'],
+    'ingepland' => ['Ingepland', 73, 'gepland'], 'wacht_klant' => ['Wachten op klant', 74, 'wacht'], 'opgelost' => ['Opgelost', 0, 'klaar'],
+];
+const SOORTEN = ['project' => 'Project', 'service' => 'Service'];
+const APPARATEN = ['energieopslag' => 'Energieopslag', 'zonnepanelen' => 'Zonnepanelen', 'laadpaal' => 'Laadpaal', 'onbekend' => 'Onbekend'];
+const URGENTIES = ['acuut' => 'Acuut: veiligheid', 'spoed' => 'Spoed', 'normaal' => 'Normaal', 'laag' => 'Laag'];
+const AFHANDELINGEN = ['afstand' => 'Op afstand', 'eerst_afstand' => 'Eerst op afstand proberen', 'locatie' => 'Waarschijnlijk op locatie', 'bellen' => 'Direct bellen', 'onbekend' => 'Nog te bepalen'];
+/** De fases die bij een soort horen (project of service). */
+function fases(string $soort = 'project'): array { return $soort === 'service' ? SERVICE_FASES : FASES; }
+function fase_naam(string $fase, string $soort = 'project'): string { return fases($soort)[$fase][0] ?? $fase; }
+/** Pipedrive phase_id naar fase. Werkt voor het BESS-bord, het servicebord en "Nieuw bord" (11). Geeft [soort, fase] of null. */
+function fase_van_pipedrive_bord(int $phaseId): ?array
+{
+    if ($phaseId <= 0) return null;
+    foreach (FASES as $k => $f) if ($f[1] === $phaseId) return ['project', $k];
+    foreach (SERVICE_FASES as $k => $f) if ($f[1] === $phaseId) return ['service', $k];
+    // "Nieuw bord" (11): 75 nieuw gewonnen, 76 nieuwe service ticket, 77 opgepakte projecten, 78 opgepakte storingen, 79 gepland
+    return [75 => ['project', 'nieuw'], 76 => ['service', 'melding'], 77 => ['project', 'bezig'], 78 => ['service', 'uitzoeken'], 79 => ['project', 'gepland']][$phaseId] ?? null;
+}
+function fase_van_pipedrive(int $phaseId): ?string { $f = fase_van_pipedrive_bord($phaseId); return $f && $f[0] === 'project' ? $f[1] : null; }
+/** Nieuw ticketnummer in dezelfde vorm als het webformulier: WW-jjmmdd-XXXX */
+function ticket_nummer_nieuw(): string
+{
+    $tekens = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    do {
+        $nr = 'WW-' . date('ymd') . '-';
+        for ($i = 0; $i < 4; $i++) $nr .= $tekens[random_int(0, strlen($tekens) - 1)];
+    } while (q('SELECT 1 FROM projecten WHERE nummer = ?', [$nr])->fetch());
+    return $nr;
+}
 // Mijlpalen per project: vaste momenten zoals een levering, keuring of oplevering. Met de hand of door Claude (uit mail e.d.) gezet.
 const MIJLPAAL_SOORT = ['levering' => 'Levering', 'installatie' => 'Installatie', 'netbeheer' => 'Netbeheerder', 'keuring' => 'Keuring', 'oplevering' => 'Oplevering', 'betaling' => 'Betaling', 'overig' => 'Overig'];
 const MIJLPAAL_BRON = ['hand' => '', 'mail' => 'uit mail', 'whatsapp' => 'uit WhatsApp', 'teams' => 'uit Teams', 'pipedrive' => 'uit Pipedrive', 'inkoop' => 'uit inkoop', 'claude' => 'Claude'];
@@ -67,7 +98,7 @@ function mijlpalen(int $projectId): array
     return q('SELECT * FROM project_mijlpalen WHERE project_id = ? ORDER BY gedaan, datum IS NULL, datum, id', [$projectId])->fetchAll();
 }
 function mijlpaal_tekst(array $m): string { return ($m['datum'] ? datum_kort($m['datum']) . ' ' : '') . $m['titel'] . ($m['zeker'] ? '' : ' (verwacht)'); }
-function fase_stap(string $fase): int { $i = array_search($fase, array_keys(FASES), true); return $i === false ? 0 : $i; }
+function fase_stap(string $fase, string $soort = 'project'): int { $i = array_search($fase, array_keys(fases($soort)), true); return $i === false ? 0 : $i; }
 /** Grootte uit een omschrijving als "4x Hoymiles 125kW/261kWh" of "2 MWh": totaal in kWh, of null. */
 function kwh_uit_tekst(string $t): ?int
 {
@@ -79,6 +110,7 @@ function kwh_uit_tekst(string $t): ?int
 }
 function project_naam(array $r): string
 {
+    if (($r['soort'] ?? '') === 'service' && ($r['klant'] ?? '') !== '') return (string)$r['klant'];
     // Korte naam: het deel voor het streepje ("Oostendorp – 4x Hoymiles ..." wordt "Oostendorp")
     $o = clean_text(preg_split('/\s[–—-]\s/u', (string)($r['omschrijving'] ?? ''), 2)[0]);
     return $o !== '' ? $o : (string)($r['nummer'] ?? '');
@@ -416,4 +448,55 @@ function foto_opslaan(int $pid, array $upload, string $soort, string $omschrijvi
     q('INSERT INTO fotos (project_id, gebruiker_id, bestand, soort, omschrijving) VALUES (?,?,?,?,?)',
         [$pid, $gid, $naam, isset(FOTO_SOORT[$soort]) ? $soort : 'uitvoering', mb_substr(clean_text($omschrijving), 0, 255)]);
     return null;
+}
+
+// ---------- Service-tickets ----------
+/**
+ * Ticket aanmaken of bijwerken. Bijwerken op "nummer" (WW-...) of op "ref" (id van het webformulier, dan wordt hetzelfde formulier nooit dubbel).
+ * {"klant":"..","adres":"..","telefoon":"..","email":"..","apparaat":"energieopslag","urgentie":"normaal","afhandeling":"eerst_afstand",
+ *  "foutcode":"..","titel":"korte omschrijving","beschrijving":"..","fase":"melding","eigenaar":"julian","ref":"<uuid>"}
+ */
+function ticket_opslaan(array $d, string $wie): array
+{
+    $best = null;
+    if (!empty($d['nummer'])) $best = q("SELECT * FROM projecten WHERE nummer = ? AND soort = 'service'", [clean_text($d['nummer'])])->fetch() ?: null;
+    if (!$best && !empty($d['ref'])) $best = q('SELECT * FROM projecten WHERE extern_ref = ?', [clean_text($d['ref'])])->fetch() ?: null;
+    $klant = mb_substr(clean_text($d['klant'] ?? ''), 0, 150);
+    $titel = clean_text($d['titel'] ?? '');
+    $velden = [
+        'klant' => $klant, 'adres' => mb_substr(clean_text($d['adres'] ?? ''), 0, 255),
+        'telefoon' => mb_substr(clean_text($d['telefoon'] ?? ''), 0, 50), 'email' => mb_substr(clean_text($d['email'] ?? ''), 0, 150),
+        'apparaat' => isset(APPARATEN[$d['apparaat'] ?? '']) ? $d['apparaat'] : '', 'urgentie' => isset(URGENTIES[$d['urgentie'] ?? '']) ? $d['urgentie'] : '',
+        'afhandeling' => isset(AFHANDELINGEN[$d['afhandeling'] ?? '']) ? $d['afhandeling'] : '', 'foutcode' => mb_substr(clean_text($d['foutcode'] ?? ''), 0, 100),
+        'beschrijving' => trim((string)($d['beschrijving'] ?? '')), 'contact' => mb_substr(clean_text($d['contact'] ?? ''), 0, 255),
+    ];
+    if (!$best) {
+        if ($klant === '' && $titel === '') throw new InvalidArgumentException('klant of titel ontbreekt');
+        // Het webformulier maakt zelf al een ticketnummer (WW-jjmmdd-XXXX); dat houden we aan zodat de klant hetzelfde nummer ziet
+        $gegeven = strtoupper(clean_text($d['ticketnummer'] ?? ''));
+        $nr = preg_match('/^WW-\d{6}-[A-Z0-9]{4}$/', $gegeven) && !q('SELECT 1 FROM projecten WHERE nummer = ?', [$gegeven])->fetch() ? $gegeven : ticket_nummer_nieuw();
+        q("INSERT INTO projecten (nummer, soort, omschrijving, fase, startdatum, extern_ref) VALUES (?, 'service', ?, 'melding', ?, ?)",
+            [$nr, mb_substr($titel !== '' ? $titel : 'Melding ' . $klant, 0, 255), vandaag(), ($d['ref'] ?? '') !== '' ? mb_substr(clean_text($d['ref']), 0, 64) : null]);
+        $best = q('SELECT * FROM projecten WHERE id = ?', [(int)db()->lastInsertId()])->fetch();
+        $nieuw = true;
+    } else $nieuw = false;
+    $pid = (int)$best['id'];
+    foreach ($velden as $k => $v) if ($v !== '' && ($nieuw || !empty($d['overschrijf']) || ($best[$k] ?? '') === '' || $best[$k] === null)) q("UPDATE projecten SET `$k` = ? WHERE id = ?", [$v, $pid]);
+    if ($titel !== '' && !$nieuw && !empty($d['overschrijf'])) q('UPDATE projecten SET omschrijving = ? WHERE id = ?', [mb_substr($titel, 0, 255), $pid]);
+    if (isset($d['fase']) && isset(SERVICE_FASES[$d['fase']])) ticket_fase($pid, $d['fase']);
+    if (($d['eigenaar'] ?? '') !== '' && ($g = gebruiker_zoek((string)$d['eigenaar']))) q('UPDATE projecten SET leider_id = ? WHERE id = ?', [$g, $pid]);
+    if ($nieuw) {
+        q("INSERT INTO project_berichten (project_id, datum, bron, van, onderwerp, tekst) VALUES (?, ?, 'app', ?, 'Ticket aangemaakt', ?)",
+            [$pid, date('Y-m-d H:i:s'), mb_substr($wie, 0, 150), $velden['beschrijving'] ?: null]);
+        // Bij acuut of spoed krijgt kantoor direct een seintje; de rest staat op het servicebord
+        if (in_array($velden['urgentie'], ['acuut', 'spoed'], true))
+            foreach (mensen_kantoor() as $m) seintje((int)$m['id'], 'SPOED ticket: ' . mb_substr($best['omschrijving'] ?: $klant, 0, 150), 'project.php?nr=' . rawurlencode($best['nummer']));
+    }
+    return ['nummer' => $best['nummer'], 'nieuw' => $nieuw] + q('SELECT omschrijving AS naam, klant, fase, urgentie, apparaat, afhandeling, telefoon FROM projecten WHERE id = ?', [$pid])->fetch();
+}
+/** Fase van een ticket zetten; "opgelost" sluit het ticket af. */
+function ticket_fase(int $pid, string $fase): void
+{
+    if (!isset(SERVICE_FASES[$fase])) throw new InvalidArgumentException('onbekende fase');
+    q('UPDATE projecten SET fase = ?, afgerond = ?, opgelost_op = ' . ($fase === 'opgelost' ? 'COALESCE(opgelost_op, UTC_TIMESTAMP())' : 'NULL') . ' WHERE id = ?', [$fase, $fase === 'opgelost' ? 1 : 0, $pid]);
 }
