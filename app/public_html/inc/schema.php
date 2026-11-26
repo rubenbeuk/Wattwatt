@@ -361,6 +361,36 @@ function schema_migreren(): array
   CONSTRAINT fk_u_gebruiker FOREIGN KEY (gebruiker_id) REFERENCES gebruikers(id),
   CONSTRAINT fk_u_project FOREIGN KEY (project_id) REFERENCES projecten(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- WhatsApp (26-11-2026): Rubens Mac stuurt alleen zakelijke chats; het brein in de cloud leest ze hier. Privechats komen nooit op de server. ---
+"CREATE TABLE IF NOT EXISTS wa_chats (
+  jid VARCHAR(100) NOT NULL PRIMARY KEY,
+  naam VARCHAR(150) NOT NULL DEFAULT '',
+  soort ENUM('nieuw','zakelijk','prive') NOT NULL DEFAULT 'nieuw',
+  proef TEXT NULL,
+  ingedeeld_door VARCHAR(100) NOT NULL DEFAULT '',
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (soort)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+"CREATE TABLE IF NOT EXISTS wa_berichten (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  bron_id BIGINT UNSIGNED NOT NULL UNIQUE,
+  jid VARCHAR(100) NOT NULL,
+  tijd DATETIME NOT NULL,
+  van VARCHAR(150) NOT NULL DEFAULT '',
+  ik TINYINT(1) NOT NULL DEFAULT 0,
+  tekst TEXT NOT NULL,
+  ontvangen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (tijd), INDEX (jid, tijd), INDEX (ontvangen)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Stand van het brein (26-11-2026): slot tegen twee runs tegelijk (Mac en cloud) en kleine standen zoals watermerken ---
+"CREATE TABLE IF NOT EXISTS brein_stand (
+  sleutel VARCHAR(100) NOT NULL PRIMARY KEY,
+  waarde TEXT NOT NULL,
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ];
     foreach ($basis as $sql) { $pdo->exec($sql); }
 

@@ -15,7 +15,7 @@ $opdracht = (string)($_GET['opdracht'] ?? '');
 const BREIN_OPDRACHTEN = ['materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product', 'mensen', 'mens',
     'taak', 'taken', 'taak_klaar', 'taak_samenvoegen', 'taak_status', 'taak_vervalt', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht',
     'instructies', 'notities', 'notitie_verwerkt', 'projecten', 'project_info', 'project_bericht', 'mijlpaal', 'mijlpalen', 'project_samenvatting', 'project_berichten',
-    'ticket', 'tickets', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'project_opruimen'];
+    'ticket', 'tickets', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'project_opruimen', 'whatsapp', 'whatsapp_chats', 'whatsapp_indelen', 'brein_slot', 'brein_slot_vrij', 'brein_stand'];
 header('Content-Type: application/json; charset=utf-8');
 if (!in_array($opdracht, BREIN_OPDRACHTEN, true)) { http_response_code(400); echo json_encode(['fout' => 'onbekende opdracht']); exit; }
 $invoer = (string)file_get_contents('php://input', false, null, 0, 2_000_000);

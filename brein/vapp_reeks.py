@@ -16,7 +16,10 @@ import subprocess
 import sys
 
 HIER = os.path.dirname(os.path.abspath(__file__))
-VAPP = os.path.join(os.path.dirname(HIER), "voorraad-app", "vapp.py")
+# Op de Mac staat vapp.py in <MAP>/voorraad-app, in de repository (cloud) in app/
+VAPP = os.environ.get("VAPP") or next((p for p in (os.path.join(os.path.dirname(HIER), "voorraad-app", "vapp.py"),
+                                                   os.path.join(os.path.dirname(HIER), "app", "vapp.py")) if os.path.exists(p)),
+                                      os.path.join(os.path.dirname(HIER), "voorraad-app", "vapp.py"))
 TOEGESTAAN = {
     "taak", "taak_klaar", "taak_samenvoegen", "taak_vervalt", "taak_status", "notitie_verwerkt",
     "plan_voorstel", "dagopdracht", "project_info", "project_bericht", "project_samenvatting", "mijlpaal",
