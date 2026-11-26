@@ -292,6 +292,23 @@ function schema_migreren(): array
   CONSTRAINT fk_af_project FOREIGN KEY (project_id) REFERENCES projecten(id),
   CONSTRAINT fk_af_gebruiker FOREIGN KEY (gebruiker_id) REFERENCES gebruikers(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Klanten (26-11-2026): één kaart per klant met alle projecten, tickets en installaties ---
+"CREATE TABLE IF NOT EXISTS klanten (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  naam VARCHAR(150) NOT NULL,
+  bedrijf VARCHAR(150) NOT NULL DEFAULT '',
+  telefoon VARCHAR(50) NOT NULL DEFAULT '',
+  telefoon_kaal VARCHAR(20) NOT NULL DEFAULT '',
+  email VARCHAR(150) NOT NULL DEFAULT '',
+  adres VARCHAR(255) NOT NULL DEFAULT '',
+  installatie TEXT NULL,
+  notitie TEXT NULL,
+  pipedrive_person_id INT UNSIGNED NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (naam), INDEX (telefoon_kaal), INDEX (email), INDEX (pipedrive_person_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
     ];
     foreach ($basis as $sql) { $pdo->exec($sql); }
 
@@ -330,6 +347,7 @@ function schema_migreren(): array
         ['projecten', 'opgelost_op', "DATETIME NULL AFTER extern_ref"],
         ['projecten', 'pipedrive_deal_id', "INT UNSIGNED NULL AFTER pipedrive_id"],
         ['gebruikers', 'agenda_token', "VARCHAR(48) NULL AFTER beslisser"],
+        ['projecten', 'klant_id', "INT UNSIGNED NULL AFTER klant"],
     ];
     foreach ($kolommen as [$tabel, $kolom, $def]) {
         $bestaat = q("SELECT COUNT(*) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [$tabel, $kolom])->fetch()['c'];
@@ -341,6 +359,7 @@ function schema_migreren(): array
     }
     $idx = q("SELECT COUNT(*) c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'producten' AND INDEX_NAME = 'idx_levcode'")->fetch()['c'];
     if (!$idx) { $pdo->exec("ALTER TABLE producten ADD INDEX idx_levcode (leverancier_code)"); }
+    if (!q("SELECT 1 FROM klanten LIMIT 1")->fetch()) { $n = klanten_vullen(); if ($n) $log[] = "$n klanten aangemaakt uit projecten"; }
     foreach ([['projecten', 'idx_soort', 'ADD INDEX idx_soort (soort, fase)'], ['projecten', 'idx_pipedrive', 'ADD INDEX idx_pipedrive (pipedrive_id)'], ['projecten', 'uq_extern_ref', 'ADD UNIQUE INDEX uq_extern_ref (extern_ref)']] as [$t, $naam, $sql]) {
         if (!q("SELECT COUNT(*) c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?", [$t, $naam])->fetch()['c']) {
             $pdo->exec("ALTER TABLE `$t` $sql"); $log[] = "index $t.$naam toegevoegd";

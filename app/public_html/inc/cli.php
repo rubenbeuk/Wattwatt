@@ -327,6 +327,7 @@ try {
             if (!empty($d['kwh'])) q('UPDATE projecten SET kwh = ? WHERE id = ?', [(int)$d['kwh'], $pid]);
             if (isset($d['afgerond'])) q('UPDATE projecten SET afgerond = ? WHERE id = ?', [$d['afgerond'] ? 1 : 0, $pid]);
             if (!empty($d['pipedrive_id'])) q('UPDATE projecten SET pipedrive_id = ? WHERE id = ?', [(int)$d['pipedrive_id'], $pid]);
+            project_koppel_klant($pid);
             uit(q('SELECT nummer, soort, omschrijving AS naam, klant, adres, contact, fase, startdatum, einddatum, opleverdatum, kwh, systeem, afgerond FROM projecten WHERE id = ?', [$pid])->fetch());
             break;
 
@@ -442,9 +443,20 @@ try {
                    WHERE a.geannuleerd = 0 AND a.start >= ? AND a.start < ? + INTERVAL 1 DAY" . ($wie ? ' AND a.gebruiker_id = ' . (int)$wie : '') . ' ORDER BY a.start', [$van, $tot])->fetchAll());
             break;
 
+        // Klant opzoeken met al zijn projecten en tickets (alleen lezen). {"q":"Roubos"} of {"telefoon":"0651223809"}
+        case 'klant':
+            $w = []; $par = [];
+            if (!empty($d['telefoon'])) { $w[] = 'telefoon_kaal = ?'; $par[] = telefoon_kaal((string)$d['telefoon']); }
+            if (!empty($d['q'])) { $w[] = '(naam LIKE ? OR email LIKE ? OR adres LIKE ? OR bedrijf LIKE ?)'; array_push($par, ...array_fill(0, 4, '%' . clean_text($d['q']) . '%')); }
+            if (!$w) { uit(['fout' => 'geef q of telefoon']); exit(1); }
+            $ks = q('SELECT id, naam, bedrijf, telefoon, email, adres, installatie FROM klanten WHERE ' . implode(' OR ', $w) . ' LIMIT 10', $par)->fetchAll();
+            foreach ($ks as &$k) { $k['projecten'] = q('SELECT nummer, soort, omschrijving AS naam, fase, afgerond FROM projecten WHERE klant_id = ? ORDER BY id DESC', [$k['id']])->fetchAll(); unset($k['id']); }
+            uit($ks);
+            break;
+
         default:
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant']]);
     }
 } catch (Throwable $e) {
     if (db()->inTransaction()) db()->rollBack();

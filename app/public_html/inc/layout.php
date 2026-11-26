@@ -10,6 +10,7 @@ function page_head(string $title, string $active = ''): void
     $hoofd['projecten'] = ['projecten.php', 'Projecten'];
     $hoofd['service'] = ['service.php', 'Service'];
     $hoofd['agenda'] = ['agenda.php', 'Agenda'];
+    if (is_admin()) $hoofd['klanten'] = ['klanten.php', 'Klanten'];
     $voorraad = ['scan' => ['index.php', 'Scan'], 'voorraad' => ['voorraad.php', 'Voorraad'], 'inkoop' => ['inkoop.php', 'Inkoop'], 'mutaties' => ['mutaties.php', 'Historie']];
     if (is_admin()) { $voorraad['import'] = ['import.php', 'Import']; $voorraad['labels'] = ['labels.php', 'Labels']; }
     $ik = ['account' => ['account.php', 'Mijn account']];

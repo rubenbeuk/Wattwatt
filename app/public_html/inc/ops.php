@@ -483,6 +483,7 @@ function ticket_opslaan(array $d, string $wie): array
     $pid = (int)$best['id'];
     foreach ($velden as $k => $v) if ($v !== '' && ($nieuw || !empty($d['overschrijf']) || ($best[$k] ?? '') === '' || $best[$k] === null)) q("UPDATE projecten SET `$k` = ? WHERE id = ?", [$v, $pid]);
     if ($titel !== '' && !$nieuw && !empty($d['overschrijf'])) q('UPDATE projecten SET omschrijving = ? WHERE id = ?', [mb_substr($titel, 0, 255), $pid]);
+    project_koppel_klant($pid);
     if (isset($d['fase']) && isset(SERVICE_FASES[$d['fase']])) ticket_fase($pid, $d['fase']);
     if (($d['eigenaar'] ?? '') !== '' && ($g = gebruiker_zoek((string)$d['eigenaar']))) q('UPDATE projecten SET leider_id = ? WHERE id = ?', [$g, $pid]);
     if ($nieuw) {
@@ -560,4 +561,52 @@ function agenda_token(int $gid, bool $nieuw = false): string
     $t = q('SELECT agenda_token FROM gebruikers WHERE id = ?', [$gid])->fetch()['agenda_token'] ?? null;
     if (!$t || $nieuw) { $t = bin2hex(random_bytes(20)); q('UPDATE gebruikers SET agenda_token = ? WHERE id = ?', [$t, $gid]); }
     return $t;
+}
+
+// ---------- Klanten ----------
+function telefoon_kaal(string $t): string
+{
+    $d = preg_replace('/\D/', '', $t);
+    if (str_starts_with($d, '0031')) $d = substr($d, 4); elseif (str_starts_with($d, '31') && strlen($d) === 11) $d = substr($d, 2);
+    return ltrim($d, '0');
+}
+/**
+ * Klant zoeken (op telefoon, e-mail, Pipedrive-persoon of exacte naam) of aanmaken. Vult lege velden aan. Geeft id of null als er geen naam is.
+ */
+function klant_zoek_of_maak(array $d): ?int
+{
+    $naam = mb_substr(clean_text($d['naam'] ?? ''), 0, 150);
+    $tel = clean_text($d['telefoon'] ?? ''); $kaal = telefoon_kaal($tel);
+    $mail = mb_strtolower(clean_text($d['email'] ?? ''));
+    $pd = (int)($d['pipedrive_person_id'] ?? 0);
+    $k = null;
+    if ($pd) $k = q('SELECT * FROM klanten WHERE pipedrive_person_id = ? LIMIT 1', [$pd])->fetch() ?: null;
+    if (!$k && strlen($kaal) >= 9) $k = q('SELECT * FROM klanten WHERE telefoon_kaal = ? LIMIT 1', [$kaal])->fetch() ?: null;
+    if (!$k && $mail !== '') $k = q('SELECT * FROM klanten WHERE email = ? LIMIT 1', [$mail])->fetch() ?: null;
+    if (!$k && $naam !== '') $k = q('SELECT * FROM klanten WHERE LOWER(naam) = LOWER(?) LIMIT 1', [$naam])->fetch() ?: null;
+    if (!$k) {
+        if ($naam === '') return null;
+        q('INSERT INTO klanten (naam) VALUES (?)', [$naam]);
+        $k = q('SELECT * FROM klanten WHERE id = ?', [(int)db()->lastInsertId()])->fetch();
+    }
+    $velden = ['telefoon' => mb_substr($tel, 0, 50), 'telefoon_kaal' => $kaal, 'email' => mb_substr($mail, 0, 150),
+               'adres' => mb_substr(clean_text($d['adres'] ?? ''), 0, 255), 'bedrijf' => mb_substr(clean_text($d['bedrijf'] ?? ''), 0, 150), 'pipedrive_person_id' => $pd ?: null];
+    foreach ($velden as $kol => $v) if ($v !== '' && $v !== null && ($k[$kol] === '' || $k[$kol] === null)) q("UPDATE klanten SET `$kol` = ? WHERE id = ?", [$v, $k['id']]);
+    return (int)$k['id'];
+}
+/** Project of ticket aan een klant koppelen op basis van de eigen velden (klant, telefoon, e-mail, adres). */
+function project_koppel_klant(int $pid, ?int $pdPerson = null): ?int
+{
+    $p = q('SELECT * FROM projecten WHERE id = ?', [$pid])->fetch();
+    if (!$p || ($p['klant_id'] && !$pdPerson)) return $p['klant_id'] ?? null;
+    $kid = klant_zoek_of_maak(['naam' => $p['klant'], 'telefoon' => $p['telefoon'] ?? '', 'email' => $p['email'] ?? '', 'adres' => $p['adres'], 'pipedrive_person_id' => $pdPerson]);
+    if ($kid && !$p['klant_id']) q('UPDATE projecten SET klant_id = ? WHERE id = ?', [$kid, $pid]);
+    return $kid;
+}
+/** Eenmalig: klanten maken uit alle projecten die een klantnaam hebben. */
+function klanten_vullen(): int
+{
+    $n0 = (int)q('SELECT COUNT(*) c FROM klanten')->fetch()['c'];
+    foreach (q("SELECT id FROM projecten WHERE klant <> '' AND klant_id IS NULL ORDER BY id")->fetchAll() as $r) project_koppel_klant((int)$r['id']);
+    return (int)q('SELECT COUNT(*) c FROM klanten')->fetch()['c'] - $n0;
 }
