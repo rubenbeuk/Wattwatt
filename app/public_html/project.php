@@ -202,7 +202,7 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
       <?php endif; ?>
       <?php if ($pr['labels'] ?? ''): ?><dt>Labels</dt><dd><?= e($pr['labels']) ?></dd><?php endif; ?>
       <dt>Systeem</dt><dd><?= e($pr['systeem'] ?: '–') ?></dd>
-      <dt>Klant</dt><dd><?= e($pr['klant'] ?: '–') ?></dd>
+      <dt>Klant</dt><dd><?= ($pr['klant_id'] ?? null) && is_admin() ? '<a href="klant.php?id=' . (int)$pr['klant_id'] . '">' . e($pr['klant'] ?: 'klantkaart') . '</a>' : e($pr['klant'] ?: '–') ?></dd>
       <dt>Adres</dt><dd><?= $pr['adres'] !== '' ? e($pr['adres']) . '<br><a href="' . e(route_url($pr['adres'])) . '" target="_blank" rel="noopener">Route</a>' : '<span class="warn-ink">ontbreekt</span>' ?></dd>
       <dt>Contact</dt><dd><?= e($pr['contact'] ?: '–') ?></dd>
       <dt>Projectleider</dt><dd><?= e($leider ?: 'Ruben en Berend') ?></dd>

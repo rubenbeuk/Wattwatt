@@ -122,6 +122,8 @@ function pd_project_importeren(array $p, array $notities = [], array $taken = []
         [$soort, $fase, (int)$p['id'], !empty($p['deal_ids'][0]) ? (int)$p['deal_ids'][0] : null, mb_substr($labels, 0, 255), $pid]);
     if ($klaar) q('UPDATE projecten SET afgerond = 1, opgelost_op = COALESCE(opgelost_op, ?) WHERE id = ?', [pd_tijd($p['status_change_time'] ?? null), $pid]);
 
+    project_koppel_klant($pid, !empty($p['person_ids'][0]) ? (int)$p['person_ids'][0] : null);
+
     // Notities naar de tijdlijn van het project; het vastgepinde projectoverzicht wordt de samenvatting (als die nog leeg is)
     $nNot = 0;
     foreach ($notities as $n) {
