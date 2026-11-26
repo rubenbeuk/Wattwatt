@@ -11,7 +11,7 @@ $rows = q("SELECT pr.*,
              (SELECT GROUP_CONCAT(DISTINCT pl.datum ORDER BY pl.datum) FROM planning pl WHERE pl.project_id = pr.id AND pl.datum >= ?) dagen,
              (SELECT COUNT(*) FROM taken t WHERE t.project_id = pr.id AND t.status <> 'klaar') taken,
              (SELECT COUNT(*) FROM taken t WHERE t.project_id = pr.id AND t.status <> 'klaar' AND t.deadline < ?) taken_laat
-           FROM projecten pr " . ($toonAf ? '' : "WHERE pr.afgerond = 0 AND pr.fase NOT IN ('factuur', 'betaald')"), [$v, dag_plus($v, -60), $v])->fetchAll();
+           FROM projecten pr WHERE pr.soort = 'project'" . ($toonAf ? '' : " AND pr.afgerond = 0 AND pr.fase NOT IN ('factuur', 'betaald')"), [$v, dag_plus($v, -60), $v])->fetchAll();
 
 // Open mijlpalen per project (met datum), eerstvolgende eerst
 $mpPer = [];
@@ -29,7 +29,7 @@ foreach ($rows as &$r) {
     // Einde: opleverdatum; anders de laatste ploegdag als die nog komt (bij afgeronde projecten ook een dag in het verleden)
     $r['einde'] = $r['opleverdatum'] ?: (($r['eind_plan'] && ($r['eind_plan'] >= $v || $klaar)) ? $r['eind_plan'] : null);
     $r['nog'] = ($r['einde'] && !$klaar) ? (int)round((strtotime($r['einde']) - strtotime($v)) / 86400) : null;
-    $r['prj'] = str_starts_with($r['nummer'], 'PRJ-');
+    $r['prj'] = str_starts_with($r['nummer'], 'PRJ-') || str_starts_with($r['nummer'], 'PD-');
     // Gewicht (0-100) bepaalt de hoogte in het overzicht: hoe dichtbij is het werk, hoe groot is het project, loopt er iets achter
     $bezig = $r['groep'] === 'bezig';
     $moment = $r['volgende'] ?: ($bezig ? $v : null);                   // eerstvolgende ploegdag

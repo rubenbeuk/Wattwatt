@@ -33,3 +33,4 @@ id_ed25519*
 .DS_Store
 __pycache__/
 *.pyc
+voorraad-sessions/

@@ -7,22 +7,35 @@ $nr = project_nummer($_GET['nr'] ?? $_POST['nr'] ?? '');
 $pr = q('SELECT * FROM projecten WHERE nummer = ?', [$nr])->fetch();
 if (!$pr) { flash('Project niet gevonden.', 'err'); redirect('projecten.php'); }
 $terug = 'project.php?nr=' . rawurlencode($nr);
+$service = ($pr['soort'] ?? 'project') === 'service';
+$FASES = fases($pr['soort'] ?? 'project');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $actie = $_POST['actie'] ?? 'opslaan';
     if ($actie === 'opslaan') {
         if (!is_admin()) { http_response_code(403); exit('Alleen kantoor past projectgegevens aan.'); }
-        $fase = isset(FASES[$_POST['fase'] ?? '']) ? $_POST['fase'] : $pr['fase'];
+        $fase = isset($FASES[$_POST['fase'] ?? '']) ? $_POST['fase'] : $pr['fase'];
         $kwh = num($_POST['kwh'] ?? null);
+        if ($service) {
+            q('UPDATE projecten SET telefoon = ?, email = ?, apparaat = ?, urgentie = ?, afhandeling = ?, foutcode = ?, beschrijving = ?, einddatum = ? WHERE id = ?',
+                [mb_substr(clean_text($_POST['telefoon'] ?? ''), 0, 50), mb_substr(clean_text($_POST['email'] ?? ''), 0, 150),
+                 isset(APPARATEN[$_POST['apparaat'] ?? '']) ? $_POST['apparaat'] : '', isset(URGENTIES[$_POST['urgentie'] ?? '']) ? $_POST['urgentie'] : '',
+                 isset(AFHANDELINGEN[$_POST['afhandeling'] ?? '']) ? $_POST['afhandeling'] : '', mb_substr(clean_text($_POST['foutcode'] ?? ''), 0, 100),
+                 trim((string)($_POST['beschrijving'] ?? '')) ?: null, geldige_datum($_POST['einddatum'] ?? null), $pr['id']]);
+        }
         q('UPDATE projecten SET omschrijving = ?, klant = ?, adres = ?, contact = ?, leider_id = ?, afgerond = ?, fase = ?, opleverdatum = ?, kwh = ?, systeem = ? WHERE id = ?',
             [mb_substr(clean_text($_POST['omschrijving'] ?? ''), 0, 255), mb_substr(clean_text($_POST['klant'] ?? ''), 0, 150), mb_substr(clean_text($_POST['adres'] ?? ''), 0, 255),
              mb_substr(clean_text($_POST['contact'] ?? ''), 0, 255), (int)($_POST['leider_id'] ?? 0) ?: null, isset($_POST['afgerond']) ? 1 : 0,
              $fase, geldige_datum($_POST['opleverdatum'] ?? null), $kwh !== null && $kwh > 0 ? (int)round($kwh) : null, mb_substr(clean_text($_POST['systeem'] ?? ''), 0, 150), $pr['id']]);
-        flash('Project opgeslagen.');
+        if ($service) ticket_fase((int)$pr['id'], $fase);
+        flash($service ? 'Ticket opgeslagen.' : 'Project opgeslagen.');
     } elseif ($actie === 'fase' && is_admin()) {
         $fase = $_POST['fase'] ?? '';
-        if (isset(FASES[$fase])) { q('UPDATE projecten SET fase = ? WHERE id = ?', [$fase, $pr['id']]); flash('Fase: ' . e(FASES[$fase][0]) . '.'); }
+        if (isset($FASES[$fase])) {
+            if ($service) ticket_fase((int)$pr['id'], $fase); else q('UPDATE projecten SET fase = ? WHERE id = ?', [$fase, $pr['id']]);
+            flash('Fase: ' . e($FASES[$fase][0]) . '.');
+        }
     } elseif ($actie === 'mijlpaal' && is_admin()) {
         $titel = mb_substr(clean_text($_POST['titel'] ?? ''), 0, 200);
         if ($titel === '') flash('Vul in wat de mijlpaal is.', 'err');
@@ -116,7 +129,7 @@ $planGeweest = array_reverse(array_values(array_filter($planAlle, fn($r) => $r['
 $eind = $pr['opleverdatum'] ?: ($planKomt ? end($planKomt)['datum'] : null);
 $nog = $eind ? (int)round((strtotime($eind) - strtotime($v)) / 86400) : null;
 $kwh = $pr['kwh'] ?: kwh_uit_tekst($pr['systeem'] . ' ' . $pr['omschrijving']);
-$stap = fase_stap($pr['fase']);
+$stap = fase_stap($pr['fase'], $pr['soort'] ?? 'project');
 $mijlpalen = mijlpalen((int)$pr['id']);
 $mpOpen = array_values(array_filter($mijlpalen, fn($m) => !$m['gedaan']));
 $mpVolgende = null; foreach ($mpOpen as $m) if ($m['datum']) { $mpVolgende = $m; break; }
@@ -141,12 +154,12 @@ usort($feed, fn($a, $b) => strcmp($b['t'], $a['t']));
 const FEED_SOORT = ['mail' => 'Mail', 'whatsapp' => 'WhatsApp', 'teams' => 'Teams', 'pipedrive' => 'Pipedrive', 'telefoon' => 'Telefoon', 'claude' => 'Claude', 'app' => 'App',
     'notitie' => 'Notitie', 'melding' => 'Melding', 'taak' => 'Taak', 'bestelling' => 'Inkoop', 'foto' => "Foto's"];
 
-page_head('Project ' . $pr['nummer'], 'projecten');
+page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'service' : 'projecten');
 ?>
 <section class="card pkop">
   <div class="row between wrap">
     <div>
-      <div class="small muted"><a href="projecten.php">Projecten</a> · <?= e($pr['nummer']) ?><?= $pr['afgerond'] ? ' · <b>afgerond</b>' : '' ?></div>
+      <div class="small muted"><?= $service ? '<a href="service.php">Service</a>' : '<a href="projecten.php">Projecten</a>' ?> · <?= e($pr['nummer']) ?><?= $pr['afgerond'] ? ' · <b>afgerond</b>' : '' ?></div>
       <h1><?= e(project_naam($pr)) ?></h1>
       <div class="muted"><?= e($pr['systeem'] ?: $pr['omschrijving']) ?><?= $pr['klant'] !== '' ? ' · ' . e($pr['klant']) : '' ?></div>
     </div>
@@ -157,7 +170,7 @@ page_head('Project ' . $pr['nummer'], 'projecten');
   </div>
   <form method="post" class="fasestappen" aria-label="Fase">
     <?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="actie" value="fase">
-    <?php $i = 0; foreach (FASES as $k => $f): ?>
+    <?php $i = 0; foreach ($FASES as $k => $f): ?>
       <button <?= is_admin() ? '' : 'disabled' ?> name="fase" value="<?= $k ?>" class="stap<?= $i < $stap ? ' gedaan' : ($i === $stap ? ' nu' : '') ?>" title="<?= is_admin() ? 'Zet fase op ' . e($f[0]) : e($f[0]) ?>"><?= e($f[0]) ?></button>
     <?php $i++; endforeach; ?>
   </form>
@@ -176,15 +189,28 @@ page_head('Project ' . $pr['nummer'], 'projecten');
   <section class="card">
     <div class="row between"><h2>Details</h2><?php if (is_admin()): ?><button type="button" class="btn small ghost" id="bewerkKnop">Bewerken</button><?php endif; ?></div>
     <dl class="pdetails">
-      <dt>Fase</dt><dd><?= e(FASES[$pr['fase']][0] ?? '') ?></dd>
+      <dt>Fase</dt><dd><?= e($FASES[$pr['fase']][0] ?? '') ?></dd>
+      <?php if ($service): ?>
+      <?php if ($pr['urgentie']): ?><dt>Urgentie</dt><dd class="<?= in_array($pr['urgentie'], ['acuut', 'spoed'], true) ? 'rood' : '' ?>"><?= e(URGENTIES[$pr['urgentie']] ?? $pr['urgentie']) ?></dd><?php endif; ?>
+      <dt>Apparaat</dt><dd><?= e(APPARATEN[$pr['apparaat']] ?? '–') ?></dd>
+      <dt>Afhandeling</dt><dd><?= e(AFHANDELINGEN[$pr['afhandeling']] ?? '–') ?></dd>
+      <?php if ($pr['foutcode'] !== ''): ?><dt>Foutcode</dt><dd><?= e($pr['foutcode']) ?></dd><?php endif; ?>
+      <dt>Telefoon</dt><dd><?= $pr['telefoon'] !== '' ? '<a href="tel:' . e(preg_replace('/[^\d+]/', '', $pr['telefoon'])) . '">' . e($pr['telefoon']) . '</a>' : '–' ?></dd>
+      <?php if ($pr['email'] !== ''): ?><dt>E-mail</dt><dd><a href="mailto:<?= e($pr['email']) ?>"><?= e($pr['email']) ?></a></dd><?php endif; ?>
+      <dt>Gemeld</dt><dd><?= $pr['startdatum'] ? e(datum_lang($pr['startdatum'])) : '–' ?></dd>
+      <dt>Streefdatum</dt><dd><?= $pr['einddatum'] ? e(datum_lang($pr['einddatum'])) : '–' ?></dd>
+      <?php endif; ?>
+      <?php if ($pr['labels'] ?? ''): ?><dt>Labels</dt><dd><?= e($pr['labels']) ?></dd><?php endif; ?>
       <dt>Systeem</dt><dd><?= e($pr['systeem'] ?: '–') ?></dd>
       <dt>Klant</dt><dd><?= e($pr['klant'] ?: '–') ?></dd>
       <dt>Adres</dt><dd><?= $pr['adres'] !== '' ? e($pr['adres']) . '<br><a href="' . e(route_url($pr['adres'])) . '" target="_blank" rel="noopener">Route</a>' : '<span class="warn-ink">ontbreekt</span>' ?></dd>
       <dt>Contact</dt><dd><?= e($pr['contact'] ?: '–') ?></dd>
       <dt>Projectleider</dt><dd><?= e($leider ?: 'Ruben en Berend') ?></dd>
-      <dt>Opleverdatum</dt><dd><?= $pr['opleverdatum'] ? e(datum_lang($pr['opleverdatum'])) : '–' ?></dd>
+      <?php if (!$service): ?><dt>Opleverdatum</dt><dd><?= $pr['opleverdatum'] ? e(datum_lang($pr['opleverdatum'])) : '–' ?></dd><?php endif; ?>
       <?php if ($pr['pipedrive_id']): ?><dt>Pipedrive</dt><dd><a href="https://wattwatt.pipedrive.com/projects/<?= (int)$pr['pipedrive_id'] ?>" target="_blank" rel="noopener">Project openen</a></dd><?php endif; ?>
+      <?php if ($pr['pipedrive_deal_id'] ?? null): ?><dt>Deal</dt><dd><a href="https://wattwatt.pipedrive.com/deal/<?= (int)$pr['pipedrive_deal_id'] ?>" target="_blank" rel="noopener">Deal in Pipedrive</a></dd><?php endif; ?>
     </dl>
+    <?php if (($pr['beschrijving'] ?? '') !== ''): ?><details class="small"><summary>Beschrijving</summary><p style="white-space:pre-line"><?= e($pr['beschrijving']) ?></p></details><?php endif; ?>
     <?php if (is_admin()): ?>
     <form method="post" class="stack" id="bewerkForm" hidden>
       <?= csrf_field() ?>
@@ -195,8 +221,18 @@ page_head('Project ' . $pr['nummer'], 'projecten');
       <label>Adres (voor de route van de monteur) <input name="adres" value="<?= e($pr['adres']) ?>" placeholder="Straat 1, 1234 AB Plaats"></label>
       <label>Contact op locatie <input name="contact" value="<?= e($pr['contact']) ?>" placeholder="naam en hoe te bereiken"></label>
       <label>Fase
-        <select name="fase"><?php foreach (FASES as $k => $f): ?><option value="<?= $k ?>" <?= $pr['fase'] === $k ? 'selected' : '' ?>><?= e($f[0]) ?></option><?php endforeach; ?></select></label>
-      <label>Opleverdatum (contract of afspraak) <input type="date" name="opleverdatum" value="<?= e($pr['opleverdatum'] ?? '') ?>"></label>
+        <select name="fase"><?php foreach ($FASES as $k => $f): ?><option value="<?= $k ?>" <?= $pr['fase'] === $k ? 'selected' : '' ?>><?= e($f[0]) ?></option><?php endforeach; ?></select></label>
+      <?php if ($service): ?>
+      <label>Telefoon <input name="telefoon" value="<?= e($pr['telefoon']) ?>"></label>
+      <label>E-mail <input type="email" name="email" value="<?= e($pr['email']) ?>"></label>
+      <label>Apparaat <select name="apparaat"><option value="">–</option><?php foreach (APPARATEN as $k => $n): ?><option value="<?= $k ?>" <?= $pr['apparaat'] === $k ? 'selected' : '' ?>><?= e($n) ?></option><?php endforeach; ?></select></label>
+      <label>Urgentie <select name="urgentie"><option value="">–</option><?php foreach (URGENTIES as $k => $n): ?><option value="<?= $k ?>" <?= $pr['urgentie'] === $k ? 'selected' : '' ?>><?= e($n) ?></option><?php endforeach; ?></select></label>
+      <label>Afhandeling <select name="afhandeling"><option value="">–</option><?php foreach (AFHANDELINGEN as $k => $n): ?><option value="<?= $k ?>" <?= $pr['afhandeling'] === $k ? 'selected' : '' ?>><?= e($n) ?></option><?php endforeach; ?></select></label>
+      <label>Foutcode <input name="foutcode" value="<?= e($pr['foutcode']) ?>"></label>
+      <label>Streefdatum <input type="date" name="einddatum" value="<?= e($pr['einddatum'] ?? '') ?>"></label>
+      <label>Beschrijving <textarea name="beschrijving" rows="5"><?= e($pr['beschrijving'] ?? '') ?></textarea></label>
+      <?php endif; ?>
+      <label<?= $service ? ' hidden' : '' ?>>Opleverdatum (contract of afspraak) <input type="date" name="opleverdatum" value="<?= e($pr['opleverdatum'] ?? '') ?>"></label>
       <label>Systeem <input name="systeem" value="<?= e($pr['systeem']) ?>" placeholder="bijv. 4x Hoymiles 125 kW / 261 kWh + STS"></label>
       <label>Grootte in kWh <input name="kwh" inputmode="numeric" value="<?= e((string)($pr['kwh'] ?? '')) ?>" placeholder="bijv. 1044"></label>
       <label>Projectleider (krijgt het seintje als een monteur iets meldt)

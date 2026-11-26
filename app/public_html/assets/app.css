@@ -600,3 +600,7 @@ main:has(.playout) { max-width: 1320px; }
 .tl-mp.verwacht { background: #fff; border-color: #7c3aed; }
 .tl-legenda .lg-mp { background: #7c3aed; transform: rotate(45deg); border-radius: 0; }
 .mp-form select { width: auto; } .mp-form input[type=date] { flex: 0 0 auto; }
+/* Servicebord */
+.sbord { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.pkaart.spoed { border-left: 4px solid #b42318; }
+.tag.rood { background: #fde8e6; color: #b42318; }
