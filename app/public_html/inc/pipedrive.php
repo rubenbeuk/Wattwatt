@@ -82,7 +82,7 @@ function pd_project_importeren(array $p, array $notities = [], array $taken = []
         $probleem = str_contains($naam, '·') ? clean_text(explode('·', $naam, 2)[1]) : '';
         if ($probleem === '' || preg_match('/^WW-\d{6}-\w{4}$/', $probleem)) {
             $probleem = preg_match('/(?:Wat de klant merkt|Wat er mis is):\s*(.+)/u', (string)($p['description'] ?? ''), $wm) ? clean_text($wm[1]) : clean_text(strtok((string)($p['description'] ?? ''), "\n") ?: '');
-            if (preg_match('/^Ticket WW-/i', $probleem)) $probleem = clean_text(explode("\n", (string)$p['description'])[1] ?? '');
+            if (preg_match('/^(Ticket WW-|VEILIGHEID|SPOED)/i', $probleem)) $probleem = clean_text(explode("\n", (string)$p['description'])[1] ?? '');
         }
         $naam = $probleem !== '' ? $probleem : $naam;
     }
