@@ -497,6 +497,8 @@ try {
                     [(int)$b['bron_id'], $jid, $tijd, mb_substr((string)($b['van'] ?? ''), 0, 150), !empty($b['ik']) ? 1 : 0, mb_substr((string)($b['tekst'] ?? ''), 0, 2000)])->rowCount();
             }
             q('DELETE FROM wa_berichten WHERE tijd < NOW() - INTERVAL 45 DAY');
+            // hartslag: wanneer de Mac voor het laatst een ronde stuurde (ook als er geen nieuwe berichten waren)
+            q("INSERT INTO brein_stand (sleutel, waarde) VALUES ('wa_laatste_ronde', NOW()) ON DUPLICATE KEY UPDATE waarde = VALUES(waarde)");
             uit(['nieuwe_chats' => $nc, 'nieuwe_berichten' => $nb]);
             break;
 
@@ -525,6 +527,7 @@ try {
             foreach ($rijen as $r) $per[$r['naam']][] = date('d-m H:i', strtotime($r['tijd'])) . ' ' . $r['van'] . ': ' . $r['tekst'];
             $tekst = implode("\n\n", array_map(fn($n, $rr) => "=== $n\n" . implode("\n", $rr), array_keys($per), $per));
             uit(['chats' => count($per), 'berichten' => count($rijen), 'laatste_ontvangst' => q('SELECT MAX(ontvangen) FROM wa_berichten')->fetchColumn(),
+                'laatste_ronde_mac' => q("SELECT waarde FROM brein_stand WHERE sleutel = 'wa_laatste_ronde'")->fetchColumn() ?: null,
                 'nog_in_te_delen' => (int)q("SELECT COUNT(*) FROM wa_chats WHERE soort = 'nieuw'")->fetchColumn(), 'tekst' => $tekst]);
             break;
 
