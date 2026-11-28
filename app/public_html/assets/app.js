@@ -675,3 +675,49 @@
     kies(w);
   }
 })();
+
+// ---------- Service worker: pushmeldingen en Mijn dag offline (ronde 3) ----------
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  // Uitgelogd: bewaarde Mijn dag weggooien, zodat de volgende gebruiker die niet ziet
+  if (/login\.php$/.test(location.pathname) && window.caches) { caches.keys().then((ks) => ks.forEach((k) => caches.delete(k))).catch(() => {}); }
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  const knop = document.getElementById('pushKnop');
+  if (!knop) return;
+  const status = document.getElementById('pushStatus'), test = document.getElementById('pushTest');
+  const csrf = knop.dataset.csrf;
+  const zeg = (t) => { if (status) status.textContent = t; };
+  if (!('PushManager' in window) || !('Notification' in window)) {
+    knop.disabled = true;
+    zeg('Dit apparaat of deze browser ondersteunt geen meldingen. Op een iPhone: zet de app eerst op je beginscherm (Delen > Zet op beginscherm) en open hem daarvandaan.');
+    return;
+  }
+  const post = (data) => fetch('api_push.php', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams(Object.assign({ csrf }, data)) }).then((r) => r.json());
+  const b64 = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
+  async function stand() {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    knop.textContent = sub ? 'Meldingen uitzetten' : 'Meldingen aanzetten';
+    knop.dataset.aan = sub ? '1' : '0';
+    if (test) test.hidden = !sub;
+    zeg(sub ? 'Meldingen staan aan op dit apparaat.' : (Notification.permission === 'denied' ? 'Meldingen zijn geblokkeerd in de instellingen van je telefoon of browser.' : 'Meldingen staan uit op dit apparaat.'));
+    return { reg, sub };
+  }
+  knop.addEventListener('click', async () => {
+    knop.disabled = true;
+    try {
+      const { reg, sub } = await stand();
+      if (sub) { await post({ actie: 'uit', endpoint: sub.endpoint }); await sub.unsubscribe(); }
+      else {
+        if ((await Notification.requestPermission()) !== 'granted') { zeg('Geen toestemming gekregen voor meldingen.'); return; }
+        const k = await fetch('api_push.php?sleutel', { credentials: 'same-origin' }).then((r) => r.json());
+        const nieuw = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(k.sleutel) });
+        await post({ actie: 'aan', endpoint: nieuw.endpoint });
+      }
+    } catch (e) { zeg('Het lukte niet: ' + e.message); }
+    finally { knop.disabled = false; stand().catch(() => {}); }
+  });
+  if (test) test.addEventListener('click', () => post({ actie: 'test' }).then(() => zeg('Testmelding verstuurd; hij komt binnen een paar seconden.')));
+  stand().catch(() => zeg(''));
+})();

@@ -42,6 +42,7 @@ $ids = array_map(fn($p) => (int)$p['id'], $projecten) ?: [0];
 $in = implode(',', $ids);
 $afspraken = q("SELECT a.*, g.naam FROM afspraken a LEFT JOIN gebruikers g ON g.id = a.gebruiker_id WHERE a.project_id IN ($in) AND a.geannuleerd = 0 AND a.start >= CURDATE() ORDER BY a.start LIMIT 20")->fetchAll();
 $berichten = q("SELECT b.*, p.nummer FROM project_berichten b JOIN projecten p ON p.id = b.project_id WHERE b.project_id IN ($in) ORDER BY b.datum DESC LIMIT 15")->fetchAll();
+$contracten = q('SELECT c.*, l.naam lnaam, l.adres ladres FROM contracten c LEFT JOIN locaties l ON l.id = c.locatie_id WHERE c.klant_id = ? ORDER BY c.status = \'actief\' DESC, c.id', [$k['id']])->fetchAll();
 $vergelijkbaar = q("SELECT id, naam, telefoon, adres FROM klanten WHERE id <> ? AND (LOWER(naam) LIKE LOWER(?) OR (telefoon_kaal <> '' AND telefoon_kaal = ?)) LIMIT 5",
     [$k['id'], '%' . explode(' ', trim($k['naam']))[count(explode(' ', trim($k['naam']))) - 1] . '%', $k['telefoon_kaal']])->fetchAll();
 
@@ -107,6 +108,13 @@ page_head('Klant ' . $k['naam'], 'klanten');
     </details>
     <?php if ($k['installatie']): ?><details class="mt small"><summary>Oude notitie over de installatie</summary><p style="white-space:pre-line"><?= e($k['installatie']) ?></p></details><?php endif; ?>
     <?php if ($k['notitie']): ?><p class="small muted" style="white-space:pre-line"><?= e($k['notitie']) ?></p><?php endif; ?>
+  </section>
+  <section class="card" id="contracten">
+    <div class="row between wrap"><h2>Contracten</h2><?php if (is_admin()): ?><a class="btn small" href="contract.php?klant=<?= (int)$k['id'] ?>">Contract toevoegen</a><?php endif; ?></div>
+    <?php if (!$contracten): ?><p class="muted small">Geen onderhouds- of servicecontract.</p><?php else: ?><ul class="plijst"><?php foreach ($contracten as $c): ?>
+      <li class="<?= $c['status'] !== 'actief' ? 'muted' : '' ?>"><a href="contract.php?id=<?= (int)$c['id'] ?>"><?= e(contract_naam($c)) ?></a>
+        <span class="small muted">· <?= e($c['lnaam'] ?: ($c['ladres'] ?: 'alle locaties')) ?><?= (int)$c['interval_maanden'] && $c['volgende_onderhoud'] ? ' · onderhoud ' . e(date('d-m-Y', strtotime($c['volgende_onderhoud']))) : '' ?><?= $c['status'] !== 'actief' ? ' · ' . e(CONTRACT_STATUS[$c['status']] ?? $c['status']) : '' ?></span></li>
+    <?php endforeach; ?></ul><?php endif; ?>
   </section>
   <section class="card">
     <h2>Projecten en tickets</h2>

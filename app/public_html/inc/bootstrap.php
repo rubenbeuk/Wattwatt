@@ -224,5 +224,8 @@ const TYPES = [
 require __DIR__ . '/ops.php';
 require __DIR__ . '/claude.php';
 require __DIR__ . '/werk.php';
+require __DIR__ . '/contracten.php';
+require __DIR__ . '/berichten.php';
+require __DIR__ . '/push.php';
 require __DIR__ . '/totp.php';
 require __DIR__ . '/layout.php';

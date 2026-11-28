@@ -117,3 +117,15 @@ Controleren zonder in te loggen (alleen lezen, op de droplet): `php /root/render
 - **Uren uit de planning**: op Uren staat per dag wat volgens de planning gewerkt is (een dagdeel = 4 uur) met "Klopt" of "Alles overnemen". Kantoor keurt per persoon de week goed; daarna kan de monteur die regels niet meer weghalen.
 - **Begroting, termijnen en factuurvoorstellen** (tab Financieel, alleen kantoor; pagina `facturen.php`): begroting uit de offerte, betaaltermijnen met moment (opdracht, levering, installatie, oplevering), factuurvoorstel per termijn of uit uren en materiaal (service). Akkoord → download voor de boekhouding → factuurnummer invullen → betaald. De fase van het project gaat mee. Tarieven voor service staan onderaan Facturen.
 - **Brein**: nieuwe opdrachten `locatie`, `installatie`, `installaties`, `ticket_installatie`, `werkbon_concept`, `werkbonnen`, `begroting`, `termijnen`, `factuur_voorstel`, `facturen`. Regels in `brein/instructie/app_regels.md` punt 8.
+
+## Ronde 3: service, klant en marge (28-11-2026)
+- **Termijnen controleren**: termijnen van lopende projecten waarvan het moment al voorbij is, staan op "eerst controleren". Op Facturen en de tab Financieel kies je "Al gefactureerd" (met factuurnummer) of "Nog factureren".
+- **Nacalculatie** (tab Financieel, "Marge per project" op Facturen): begroting tegenover materiaal (voorraad en direct geleverd), uren × kostprijs per uur. Kostprijs per uur stel je in bij Tarieven op Facturen.
+- **Contracten** (`contract.php`, klantkaart): onderhoud met interval, reactietijd bij storing en prijs per jaar. Een maand voor de onderhoudsdatum maakt de app zelf een onderhoudsticket (bij het openen van het servicebord of via `vapp.py contracten {"onderhoud":true}`). Nieuwe tickets op de locatie krijgen "reageren voor"; het servicebord toont wat bijna of al over de tijd is.
+- **Berichten aan de klant** (tab Tijdlijn, lijst op het servicebord): het brein of kantoor zet een concept klaar; "Open in mail" opent het in je eigen mail, daarna "Is verstuurd". De app verstuurt zelf nooit iets.
+- **Netbeheerder**: vinkje "Aangemeld bij de netbeheerder" in het opleverdossier.
+- **Pushmeldingen**: Account > "Meldingen aanzetten" per telefoon. Elk seintje geeft een tik (Web Push met VAPID, zonder inhoud; de telefoon haalt de tekst zelf op). Op iPhone eerst de app op het beginscherm zetten. Sleutels staan in brein_stand `vapid`.
+- **Mijn dag offline**: `sw.js` bewaart de laatst geladen Mijn dag; zonder bereik zie je die met een melding. Uitloggen wist de bewaarde versie.
+- **Brein**: nieuwe opdrachten `contract`, `contracten`, `klantbericht`, `klantberichten`. Regels in `brein/instructie/app_regels.md` punt 9.
+- Na het live zetten: `php cli.php migreer`.
+

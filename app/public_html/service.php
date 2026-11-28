@@ -24,6 +24,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('service.php');
 }
 
+// Onderhoud uit contracten: één keer per dag de tickets maken die binnen een maand vallen
+if (is_admin()) { $onderhoud = contracten_dagelijks(); if ($onderhoud) flash(count($onderhoud) . ' onderhoudsticket' . (count($onderhoud) === 1 ? '' : 's') . ' aangemaakt uit contracten: ' . implode(', ', $onderhoud) . '.'); }
 $toonOpgelost = isset($_GET['opgelost']);
 $v = vandaag();
 $tickets = q("SELECT p.*, g.naam AS eigenaar,
@@ -36,6 +38,7 @@ $per = [];
 foreach ($tickets as $t) $per[$t['fase']][] = $t;
 $open = count(array_filter($tickets, fn($t) => $t['fase'] !== 'opgelost'));
 $spoed = count(array_filter($tickets, fn($t) => $t['fase'] !== 'opgelost' && in_array($t['urgentie'], ['acuut', 'spoed'], true)));
+$teLaat = count(array_filter($tickets, fn($t) => $t['fase'] === 'melding' && $t['reactie_voor'] && !$t['gereageerd_op'] && strtotime($t['reactie_voor'] . ' UTC') < time()));
 
 function dagen_open(?string $start, string $v): string
 {
@@ -50,7 +53,7 @@ page_head('Service', 'service');
   <div class="row between wrap">
     <div>
       <h1>Service</h1>
-      <p class="muted small"><?= $open ?> open <?= $open === 1 ? 'ticket' : 'tickets' ?><?= $spoed ? ' · <span class="rood">' . $spoed . ' met spoed</span>' : '' ?>. Tickets van het webformulier komen hier vanzelf binnen.</p>
+      <p class="muted small"><?= $open ?> open <?= $open === 1 ? 'ticket' : 'tickets' ?><?= $spoed ? ' · <span class="rood">' . $spoed . ' met spoed</span>' : '' ?><?= $teLaat ? ' · <span class="rood">' . $teLaat . ' over de reactietijd</span>' : '' ?>. Tickets van het webformulier komen hier vanzelf binnen.</p>
     </div>
     <div class="row wrap">
       <a class="btn ghost" href="service.php<?= $toonOpgelost ? '' : '?opgelost' ?>"><?= $toonOpgelost ? 'Verberg opgelost' : 'Toon opgelost (30 dagen)' ?></a>
@@ -83,6 +86,12 @@ page_head('Service', 'service');
   <?php endif; ?>
 </section>
 
+<?php $kbOpen = is_admin() ? klantberichten_open() : []; if ($kbOpen): ?>
+<section class="card">
+  <h2>Berichten aan klanten klaar <span class="muted small"><?= count($kbOpen) ?></span></h2>
+  <ul class="plijst"><?php foreach ($kbOpen as $b): ?><li><a href="project.php?nr=<?= e(rawurlencode($b['nummer'])) ?>#tijdlijn"><b><?= e($b['nummer']) ?></b></a> <?= e($b['onderwerp']) ?> <span class="small muted">· <?= e(KLANTBERICHT_SOORTEN[$b['soort']] ?? '') ?><?= $b['aan'] === '' ? ' · <span class="oranje">e-mailadres ontbreekt</span>' : '' ?></span></li><?php endforeach; ?></ul>
+</section>
+<?php endif; ?>
 <section class="card">
   <div class="pbord sbord">
     <?php foreach (SERVICE_FASES as $f => [$fnaam]): if ($f === 'opgelost' && !$toonOpgelost) continue; $in = $per[$f] ?? []; ?>
@@ -103,6 +112,8 @@ page_head('Service', 'service');
         </span>
         <?php if ($t['telefoon'] !== ''): ?><a class="small" href="tel:<?= e(preg_replace('/[^\d+]/', '', $t['telefoon'])) ?>"><?= e($t['telefoon']) ?></a><?php endif; ?>
         <?php if ($t['volgende']): ?><span class="small muted">Ingepland: <?= e(datum_kort($t['volgende'])) ?></span><?php endif; ?>
+        <?php if ($t['fase'] !== 'opgelost' && ($rs = reactie_status($t))): ?><span class="small <?= $rs['klasse'] ?>"><?= e(ucfirst($rs['tekst'])) ?></span><?php endif; ?>
+        <?php if (str_contains((string)$t['labels'], 'onderhoud') && $t['einddatum']): ?><span class="small muted">Onderhoud uiterlijk <?= e(datum_kort($t['einddatum'])) ?></span><?php endif; ?>
         <?php if (is_admin()): ?>
         <form method="post" class="row" style="gap:.3rem;margin-top:.3rem">
           <?= csrf_field() ?><input type="hidden" name="actie" value="fase"><input type="hidden" name="nr" value="<?= e($t['nummer']) ?>">
