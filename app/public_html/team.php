@@ -34,17 +34,17 @@ page_head('Team', 'team');
     <?php if ($nVoorstel): ?><a href="opschonen.php"><b><?= $nVoorstel ?></b><span>opschoonvoorstellen</span></a><?php endif; ?>
   </div>
 </section>
-<?php if ($overzicht): ?>
 <section class="card">
-  <div class="row between wrap"><h2>Wat aandacht vraagt</h2><span class="small muted">Claude, <?= e(fmt_dt($ov['bijgewerkt'])) ?></span></div>
+  <div class="row between wrap"><h2>Wat aandacht vraagt</h2><?php if ($ov): ?><span class="small muted">Claude, <?= e(fmt_dt($ov['bijgewerkt'])) ?></span><?php endif; ?></div>
+  <?php if (!$overzicht): ?><p class="muted small">Nog leeg. Claude zet hier bij elke grote run (7:00 en 17:30 op werkdagen) wat aandacht vraagt.</p><?php else: ?>
   <?php if (!empty($overzicht['samenvatting'])): ?><p><?= e($overzicht['samenvatting']) ?></p><?php endif; ?>
   <ul class="ptaken"><?php foreach (array_slice((array)($overzicht['punten'] ?? []), 0, 15) as $p): $pnr = project_nummer((string)($p['project'] ?? '')); ?>
     <li><?php if (in_array($p['prioriteit'] ?? '', ['kritiek', 'hoog'], true)): ?><span class="tag p-<?= e($p['prioriteit']) ?>"><?= e(TAAK_PRIO[$p['prioriteit']] ?? '') ?></span> <?php endif; ?>
       <b><?= e((string)($p['titel'] ?? '')) ?></b><?= $pnr !== '' ? ' · <a href="project.php?nr=' . e(rawurlencode($pnr)) . '">' . e($pnr) . '</a>' : '' ?><?= !empty($p['eigenaar']) ? ' <span class="small muted">' . e((string)$p['eigenaar']) . '</span>' : '' ?>
       <?php if (!empty($p['toelichting'])): ?><br><span class="small muted"><?= e((string)$p['toelichting']) ?></span><?php endif; ?></li>
   <?php endforeach; ?></ul>
+  <?php endif; ?>
 </section>
-<?php endif; ?>
 <section class="card">
   <h1>Wie heeft wat open</h1>
   <div class="teamgrid">

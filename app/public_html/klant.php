@@ -14,11 +14,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mb_substr(mb_strtolower(clean_text($_POST['email'] ?? '')), 0, 150), mb_substr(clean_text($_POST['adres'] ?? ''), 0, 255),
             trim((string)($_POST['installatie'] ?? '')) ?: null, trim((string)($_POST['notitie'] ?? '')) ?: null, $k['id']]);
         flash('Klant opgeslagen.');
+    } elseif (($_POST['actie'] ?? '') === 'locatie') {
+        $lid = (int)($_POST['locatie_id'] ?? 0);
+        $vals = [mb_substr(clean_text($_POST['naam'] ?? ''), 0, 150), mb_substr(clean_text($_POST['adres'] ?? ''), 0, 255), mb_substr(clean_text($_POST['contact'] ?? ''), 0, 255), mb_substr(clean_text($_POST['telefoon'] ?? ''), 0, 50)];
+        if ($lid) q('UPDATE locaties SET naam = ?, adres = ?, contact = ?, telefoon = ? WHERE id = ? AND klant_id = ?', [...$vals, $lid, $k['id']]);
+        elseif ($vals[1] !== '' || $vals[0] !== '') q('INSERT INTO locaties (klant_id, naam, adres, contact, telefoon) VALUES (?,?,?,?,?)', [$k['id'], ...$vals]);
+        flash($lid ? 'Locatie opgeslagen.' : 'Locatie toegevoegd.');
     } elseif (($_POST['actie'] ?? '') === 'samenvoegen') {
         // Dubbele klant: alles van de andere kaart naar deze, daarna de andere weg
         $ander = (int)($_POST['ander_id'] ?? 0);
         if ($ander && $ander !== (int)$k['id'] && q('SELECT 1 FROM klanten WHERE id = ?', [$ander])->fetch()) {
             q('UPDATE projecten SET klant_id = ? WHERE klant_id = ?', [$k['id'], $ander]);
+            q('UPDATE locaties SET klant_id = ? WHERE klant_id = ?', [$k['id'], $ander]);
             q('DELETE FROM klanten WHERE id = ?', [$ander]);
             flash('Klanten samengevoegd.');
         }
@@ -26,6 +33,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('klant.php?id=' . (int)$k['id']);
 }
 
+$locaties = q('SELECT l.*, (SELECT COUNT(*) FROM projecten p WHERE p.locatie_id = l.id) n FROM locaties l WHERE l.klant_id = ? ORDER BY l.id', [$k['id']])->fetchAll();
+$installaties = q("SELECT i.* FROM installaties i JOIN locaties l ON l.id = i.locatie_id WHERE l.klant_id = ? ORDER BY i.status = 'actief' DESC, i.locatie_id, FIELD(i.soort, 'batterij', 'omvormer', 'ems', 'meter', 'laadpaal', 'pv', 'overig'), i.id", [$k['id']])->fetchAll();
+$perLocatie = [];
+foreach ($installaties as $i) $perLocatie[(int)$i['locatie_id']][] = $i;
 $projecten = q("SELECT p.*, g.naam AS eigenaar FROM projecten p LEFT JOIN gebruikers g ON g.id = p.leider_id WHERE p.klant_id = ? ORDER BY p.afgerond, p.id DESC", [$k['id']])->fetchAll();
 $ids = array_map(fn($p) => (int)$p['id'], $projecten) ?: [0];
 $in = implode(',', $ids);
@@ -75,8 +86,26 @@ page_head('Klant ' . $k['naam'], 'klanten');
 </aside>
 <div>
   <section class="card">
-    <h2>Installatie</h2>
-    <?= $k['installatie'] ? '<p style="white-space:pre-line">' . e($k['installatie']) . '</p>' : '<p class="muted small">Nog niet ingevuld. Zet hier wat er staat (merk, type, serienummers, EMS), dan heeft de servicedesk het bij elke melding bij de hand.</p>' ?>
+    <h2>Locaties en installaties</h2>
+    <?php if (!$locaties): ?><p class="muted small">Nog geen locatie. Een locatie ontstaat vanzelf bij het eerste project met een adres, of voeg er hieronder een toe.</p><?php endif; ?>
+    <?php foreach ($locaties as $l): ?>
+      <div class="locatieblok">
+        <div class="row between wrap"><b><?= e(locatie_tekst($l)) ?></b>
+          <span class="small"><?= $l['contact'] !== '' ? e($l['contact']) . ' · ' : '' ?><?= (int)$l['n'] ?> project<?= (int)$l['n'] === 1 ? '' : 'en' ?> · <a href="installatie.php?locatie=<?= (int)$l['id'] ?>">installatie toevoegen</a></span></div>
+        <?php if (!empty($perLocatie[(int)$l['id']])): ?><ul class="plijst"><?php foreach ($perLocatie[(int)$l['id']] as $i): ?>
+          <li class="<?= $i['status'] !== 'actief' ? 'muted' : '' ?>"><a href="installatie.php?id=<?= (int)$i['id'] ?>"><?= e(installatie_naam($i)) ?></a><?= $i['monitoring'] !== '' ? ' <span class="small muted">· ' . e(trim($i['monitoring'] . ' ' . $i['monitoring_id'])) . '</span>' : '' ?><?= $i['garantie_tot'] ? ' <span class="small ' . garantie_klasse($i['garantie_tot']) . '">· garantie tot ' . e(date('d-m-Y', strtotime($i['garantie_tot']))) . '</span>' : '' ?></li>
+        <?php endforeach; ?></ul><?php else: ?><p class="small muted">Nog niets in het register.</p><?php endif; ?>
+        <details class="small"><summary>Locatie bewerken</summary>
+          <form method="post" class="row wrap"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)$k['id'] ?>"><input type="hidden" name="actie" value="locatie"><input type="hidden" name="locatie_id" value="<?= (int)$l['id'] ?>">
+            <input name="naam" value="<?= e($l['naam']) ?>" placeholder="Naam (bijv. Loods 2)"><input name="adres" class="grow" value="<?= e($l['adres']) ?>" placeholder="Adres"><input name="contact" value="<?= e($l['contact']) ?>" placeholder="Contact op locatie"><input name="telefoon" value="<?= e($l['telefoon']) ?>" placeholder="Telefoon"><button class="btn small">Opslaan</button></form>
+        </details>
+      </div>
+    <?php endforeach; ?>
+    <details class="mt"><summary>Locatie toevoegen</summary>
+      <form method="post" class="row wrap"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)$k['id'] ?>"><input type="hidden" name="actie" value="locatie">
+        <input name="naam" placeholder="Naam (bijv. Loods 2)"><input name="adres" class="grow" placeholder="Adres"><input name="contact" placeholder="Contact op locatie"><input name="telefoon" placeholder="Telefoon"><button class="btn small">Toevoegen</button></form>
+    </details>
+    <?php if ($k['installatie']): ?><details class="mt small"><summary>Oude notitie over de installatie</summary><p style="white-space:pre-line"><?= e($k['installatie']) ?></p></details><?php endif; ?>
     <?php if ($k['notitie']): ?><p class="small muted" style="white-space:pre-line"><?= e($k['notitie']) ?></p><?php endif; ?>
   </section>
   <section class="card">

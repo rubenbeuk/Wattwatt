@@ -420,6 +420,128 @@ function schema_migreren(): array
   CONSTRAINT fk_tv_taak FOREIGN KEY (taak_id) REFERENCES taken(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 ,
+// --- Ronde 2 (28-11-2026): locaties en installatieregister ---
+"CREATE TABLE IF NOT EXISTS locaties (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  klant_id INT UNSIGNED NULL,
+  naam VARCHAR(150) NOT NULL DEFAULT '',
+  adres VARCHAR(255) NOT NULL DEFAULT '',
+  contact VARCHAR(255) NOT NULL DEFAULT '',
+  telefoon VARCHAR(50) NOT NULL DEFAULT '',
+  notitie TEXT NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (klant_id), INDEX (adres),
+  CONSTRAINT fk_loc_klant FOREIGN KEY (klant_id) REFERENCES klanten(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+"CREATE TABLE IF NOT EXISTS installaties (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  locatie_id INT UNSIGNED NULL,
+  project_id INT UNSIGNED NULL,
+  soort VARCHAR(20) NOT NULL DEFAULT 'overig',
+  merk VARCHAR(100) NOT NULL DEFAULT '',
+  type VARCHAR(150) NOT NULL DEFAULT '',
+  serienummer VARCHAR(100) NOT NULL DEFAULT '',
+  firmware VARCHAR(100) NOT NULL DEFAULT '',
+  vermogen VARCHAR(50) NOT NULL DEFAULT '',
+  geplaatst_op DATE NULL,
+  garantie_tot DATE NULL,
+  monitoring VARCHAR(50) NOT NULL DEFAULT '',
+  monitoring_id VARCHAR(100) NOT NULL DEFAULT '',
+  status ENUM('actief','vervangen','verwijderd') NOT NULL DEFAULT 'actief',
+  notitie TEXT NULL,
+  bijgewerkt_door VARCHAR(100) NOT NULL DEFAULT '',
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (locatie_id), INDEX (project_id), INDEX (serienummer), INDEX (monitoring_id),
+  CONSTRAINT fk_ins_locatie FOREIGN KEY (locatie_id) REFERENCES locaties(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ins_project FOREIGN KEY (project_id) REFERENCES projecten(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Digitale werkbon per bezoek, met handtekening van de klant ---
+"CREATE TABLE IF NOT EXISTS werkbonnen (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id INT UNSIGNED NOT NULL,
+  datum DATE NOT NULL,
+  gebruiker_id INT UNSIGNED NULL,
+  monteurs VARCHAR(255) NOT NULL DEFAULT '',
+  werk TEXT NULL,
+  materiaal TEXT NULL,
+  uren DECIMAL(5,2) NULL,
+  opmerkingen TEXT NULL,
+  klant_naam VARCHAR(150) NOT NULL DEFAULT '',
+  handtekening MEDIUMTEXT NULL,
+  getekend_op DATETIME NULL,
+  status ENUM('concept','getekend') NOT NULL DEFAULT 'concept',
+  concept_door VARCHAR(100) NOT NULL DEFAULT '',
+  bijgewerkt_door VARCHAR(100) NOT NULL DEFAULT '',
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (project_id, datum), INDEX (status),
+  CONSTRAINT fk_wb_project FOREIGN KEY (project_id) REFERENCES projecten(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Begroting (uit de offerte), betaaltermijnen en factuurvoorstellen ---
+"CREATE TABLE IF NOT EXISTS begroting (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id INT UNSIGNED NOT NULL,
+  soort ENUM('materiaal','arbeid','overig') NOT NULL DEFAULT 'materiaal',
+  omschrijving VARCHAR(255) NOT NULL,
+  aantal DECIMAL(12,2) NOT NULL DEFAULT 1,
+  eenheid VARCHAR(20) NOT NULL DEFAULT 'stuks',
+  prijs DECIMAL(12,2) NOT NULL DEFAULT 0,
+  bron VARCHAR(255) NOT NULL DEFAULT '',
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (project_id),
+  CONSTRAINT fk_beg_project FOREIGN KEY (project_id) REFERENCES projecten(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+"CREATE TABLE IF NOT EXISTS termijnen (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id INT UNSIGNED NOT NULL,
+  volgorde TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  omschrijving VARCHAR(150) NOT NULL,
+  percentage DECIMAL(5,2) NULL,
+  bedrag DECIMAL(12,2) NULL,
+  moment VARCHAR(20) NOT NULL DEFAULT 'handmatig',
+  factuur_id INT UNSIGNED NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (project_id),
+  CONSTRAINT fk_ter_project FOREIGN KEY (project_id) REFERENCES projecten(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+"CREATE TABLE IF NOT EXISTS facturen (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id INT UNSIGNED NOT NULL,
+  soort ENUM('termijn','regie') NOT NULL DEFAULT 'regie',
+  termijn_id INT UNSIGNED NULL,
+  omschrijving VARCHAR(255) NOT NULL DEFAULT '',
+  btw DECIMAL(4,1) NOT NULL DEFAULT 21.0,
+  status ENUM('concept','akkoord','geboekt','betaald','vervallen') NOT NULL DEFAULT 'concept',
+  boekhouding_nummer VARCHAR(50) NOT NULL DEFAULT '',
+  concept_door VARCHAR(100) NOT NULL DEFAULT '',
+  akkoord_door VARCHAR(100) NOT NULL DEFAULT '',
+  akkoord_op DATETIME NULL,
+  geboekt_op DATETIME NULL,
+  betaald_op DATE NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (project_id), INDEX (status),
+  CONSTRAINT fk_fac_project FOREIGN KEY (project_id) REFERENCES projecten(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+"CREATE TABLE IF NOT EXISTS factuurregels (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  factuur_id INT UNSIGNED NOT NULL,
+  omschrijving VARCHAR(255) NOT NULL,
+  aantal DECIMAL(12,2) NOT NULL DEFAULT 1,
+  eenheid VARCHAR(20) NOT NULL DEFAULT 'stuks',
+  prijs DECIMAL(12,2) NOT NULL DEFAULT 0,
+  bron VARCHAR(100) NOT NULL DEFAULT '',
+  INDEX (factuur_id),
+  CONSTRAINT fk_fr_factuur FOREIGN KEY (factuur_id) REFERENCES facturen(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
 "CREATE TABLE IF NOT EXISTS brein_stand (
   sleutel VARCHAR(100) NOT NULL PRIMARY KEY,
   waarde TEXT NOT NULL,
@@ -471,6 +593,12 @@ function schema_migreren(): array
         ['notities', 'soort', "VARCHAR(10) NOT NULL DEFAULT 'notitie' AFTER project_id"],
         // Opleverdossier als concept van Claude na "Werk klaar" (28-11-2026)
         ['opleveringen', 'concept_door', "VARCHAR(100) NOT NULL DEFAULT '' AFTER opmerkingen"],
+        // Ronde 2 (28-11-2026): project hoort bij een locatie, een ticket bij een installatie; uren met weekakkoord
+        ['projecten', 'locatie_id', "INT UNSIGNED NULL AFTER klant_id"],
+        ['projecten', 'installatie_id', "INT UNSIGNED NULL AFTER locatie_id"],
+        ['uren', 'bron', "VARCHAR(10) NOT NULL DEFAULT 'hand' AFTER omschrijving"],
+        ['uren', 'akkoord_door', "VARCHAR(100) NOT NULL DEFAULT '' AFTER bron"],
+        ['uren', 'akkoord_op', "DATETIME NULL AFTER akkoord_door"],
     ];
     foreach ($kolommen as [$tabel, $kolom, $def]) {
         $bestaat = q("SELECT COUNT(*) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [$tabel, $kolom])->fetch()['c'];
@@ -492,6 +620,8 @@ function schema_migreren(): array
     $idx = q("SELECT COUNT(*) c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'producten' AND INDEX_NAME = 'idx_levcode'")->fetch()['c'];
     if (!$idx) { $pdo->exec("ALTER TABLE producten ADD INDEX idx_levcode (leverancier_code)"); }
     if (!q("SELECT 1 FROM klanten LIMIT 1")->fetch()) { $n = klanten_vullen(); if ($n) $log[] = "$n klanten aangemaakt uit projecten"; }
+    // Eén locatie per klant en adres uit de bestaande projecten (eenmalig, daarna alleen voor nieuwe projecten zonder locatie)
+    $n = locaties_vullen(); if ($n) $log[] = "$n projecten aan een locatie gekoppeld";
     foreach ([['projecten', 'idx_soort', 'ADD INDEX idx_soort (soort, fase)'], ['projecten', 'idx_pipedrive', 'ADD INDEX idx_pipedrive (pipedrive_id)'], ['projecten', 'uq_extern_ref', 'ADD UNIQUE INDEX uq_extern_ref (extern_ref)']] as [$t, $naam, $sql]) {
         if (!q("SELECT COUNT(*) c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?", [$t, $naam])->fetch()['c']) {
             $pdo->exec("ALTER TABLE `$t` $sql"); $log[] = "index $t.$naam toegevoegd";

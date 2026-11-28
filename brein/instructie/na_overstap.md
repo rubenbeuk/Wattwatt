@@ -24,7 +24,7 @@ Wat deze module vervangt (lees de kern met deze regels erbovenop; bij verschil w
 4. Nieuw PRJ-nummer (E5).
 - Nieuw gewonnen project = een deal die in Pipedrive op gewonnen ging of die Ruben als gewonnen meldt, en waarvoor nog geen project in de app staat (zoek op klant en deal met vapp.py projecten).
 - Nummer: zoals de kern zegt, maar kijk naar de PRJ-nummers in de app (vapp.py projecten {"alle":true}) in plaats van Pipedrive-projecttitels. Geen Zapier update_project meer.
-- Maak het project in de app met vapp.py project_info {"project":"PRJ-<nr>","naam":"..","klant":"..","adres":"..","fase":"nieuw","systeem":"..","kwh":..,"opleverdatum":".."} (alleen wat je zeker weet). OneDrive-map zoals de kern zegt.
+- Maak het project in de app met vapp.py project_info {"project":"PRJ-<nr>","naam":"..","klant":"..","adres":"..","fase":"nieuw","systeem":"..","kwh":..,"opleverdatum":".."} (alleen wat je zeker weet), met "deal_id" van de gewonnen deal. Vul daarna begroting en termijnen (app_regels.md punt 8). OneDrive-map zoals de kern zegt.
 
 5. Afspraken met een vast tijdstip staan in de agenda van de app (niet meer als Pipedrive-activiteit): python3 "<MAP>/voorraad-app/vapp.py" afspraak {"titel":"..","start":"JJJJ-MM-DD UU:MM","eind":"JJJJ-MM-DD UU:MM","wie":"ruben","project":"PRJ-<nr> of ticketnummer","locatie":"..","notitie":"bron en context","bron":"mail <dd-mm>","extern_id":"<bron>:<id>"}. Tijden in Nederlandse tijd (geen UTC-omrekening). Alleen een datum = hele dag. Verschuift de afspraak, stuur hem opnieuw met hetzelfde extern_id; afgezegd: "geannuleerd": true. Lees de agenda met vapp.py afspraken {"wie":"ruben"}. Ruben en de collega's zien de afspraken via hun agenda-abonnement ook in Outlook en op hun telefoon. "Zet in mijn agenda" = deze opdracht.
 

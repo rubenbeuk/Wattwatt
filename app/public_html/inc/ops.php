@@ -598,9 +598,10 @@ function klant_zoek_of_maak(array $d): ?int
 function project_koppel_klant(int $pid, ?int $pdPerson = null): ?int
 {
     $p = q('SELECT * FROM projecten WHERE id = ?', [$pid])->fetch();
-    if (!$p || ($p['klant_id'] && !$pdPerson)) return $p['klant_id'] ?? null;
+    if (!$p || ($p['klant_id'] && !$pdPerson)) { if ($p) project_koppel_locatie($pid); return $p['klant_id'] ?? null; }
     $kid = klant_zoek_of_maak(['naam' => $p['klant'], 'telefoon' => $p['telefoon'] ?? '', 'email' => $p['email'] ?? '', 'adres' => $p['adres'], 'pipedrive_person_id' => $pdPerson]);
     if ($kid && !$p['klant_id']) q('UPDATE projecten SET klant_id = ? WHERE id = ?', [$kid, $pid]);
+    project_koppel_locatie($pid);
     return $kid;
 }
 /** Eenmalig: klanten maken uit alle projecten die een klantnaam hebben. */

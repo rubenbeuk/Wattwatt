@@ -228,11 +228,12 @@ page_head('Mijn dag', 'dag');
       <?php endif; ?>
 
       <?php if ($isVandaag): ?>
-      <div class="knoppen2">
+      <div class="knoppen2 drie">
         <a class="btn" href="fotos.php?nr=<?= e(rawurlencode($r['nummer'])) ?>">Foto's</a>
         <a class="btn" href="project.php?nr=<?= e(rawurlencode($r['nummer'])) ?>">Project</a>
+        <a class="btn" href="werkbon.php?nr=<?= e(rawurlencode($r['nummer'])) ?>">Werkbon</a>
       </div>
-      <?php if (!empty($gemeld[(int)$r['project_id']]['klaar'])): ?><p class="ok-ink small">Je hebt dit werk vandaag klaar gemeld.</p><?php endif; ?>
+      <?php if (!empty($gemeld[(int)$r['project_id']]['klaar'])): ?><p class="ok-ink small">Je hebt dit werk vandaag klaar gemeld. <a href="werkbon.php?nr=<?= e(rawurlencode($r['nummer'])) ?>">Werkbon invullen en laten tekenen</a></p><?php endif; ?>
       <div class="knoppen2">
         <form method="post"><?= csrf_field() ?><input type="hidden" name="project_id" value="<?= (int)$r['project_id'] ?>">
           <button class="btn klaar breed" name="soort" value="klaar">Werk klaar</button></form>

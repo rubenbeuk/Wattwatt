@@ -43,6 +43,11 @@ function cl_doelen(string $opdracht, array $d, $uit = null): array
         'taak_opschoonvoorstel' => [['taak_voorstellen', $u['id'] ?? null]],
         'oplevering_concept' => [['opleveringen', $prj($d['project'] ?? '')]],
         'vraag_antwoord' => [['notities', (int)($d['id'] ?? 0) ?: null], ['project_berichten', $id('SELECT id FROM project_berichten WHERE extern_id = ?', ['vraag:' . (int)($d['id'] ?? 0)])]],
+        'locatie' => [['locaties', (int)($d['id'] ?? 0) ?: ($u['id'] ?? null)]],
+        'installatie' => [['installaties', (int)($d['id'] ?? 0) ?: (clean_text($d['serienummer'] ?? '') !== '' ? $id('SELECT id FROM installaties WHERE serienummer = ? LIMIT 1', [clean_text($d['serienummer'])]) : null) ?? ($u['id'] ?? null)]],
+        'ticket_installatie' => [['projecten', $prj($d['ticket'] ?? '')]],
+        'werkbon_concept' => [['werkbonnen', ($p = $prj($d['project'] ?? '')) ? $id("SELECT id FROM werkbonnen WHERE project_id = ? AND datum = ? AND status = 'concept' ORDER BY id DESC LIMIT 1", [$p, geldige_datum($d['datum'] ?? '') ?? vandaag()]) : null]],
+        'factuur_voorstel' => [['facturen', $u['factuur'] ?? null]],
         default => [],
     };
     return array_values(array_filter($lijst, fn($x) => $x[1]));
@@ -367,6 +372,7 @@ try {
             if (!empty($d['kwh'])) q('UPDATE projecten SET kwh = ? WHERE id = ?', [(int)$d['kwh'], $pid]);
             if (isset($d['afgerond'])) q('UPDATE projecten SET afgerond = ? WHERE id = ?', [$d['afgerond'] ? 1 : 0, $pid]);
             if (!empty($d['pipedrive_id'])) q('UPDATE projecten SET pipedrive_id = ? WHERE id = ?', [(int)$d['pipedrive_id'], $pid]);
+            if (!empty($d['deal_id'])) q('UPDATE projecten SET pipedrive_deal_id = ? WHERE id = ?', [(int)$d['deal_id'], $pid]);
             project_koppel_klant($pid);
             uit(q('SELECT nummer, soort, omschrijving AS naam, klant, adres, contact, fase, startdatum, einddatum, opleverdatum, kwh, systeem, afgerond FROM projecten WHERE id = ?', [$pid])->fetch());
             break;
@@ -490,7 +496,12 @@ try {
             if (!empty($d['q'])) { $w[] = '(naam LIKE ? OR email LIKE ? OR adres LIKE ? OR bedrijf LIKE ?)'; array_push($par, ...array_fill(0, 4, '%' . clean_text($d['q']) . '%')); }
             if (!$w) { uit(['fout' => 'geef q of telefoon']); exit(1); }
             $ks = q('SELECT id, naam, bedrijf, telefoon, email, adres, installatie FROM klanten WHERE ' . implode(' OR ', $w) . ' LIMIT 10', $par)->fetchAll();
-            foreach ($ks as &$k) { $k['projecten'] = q('SELECT nummer, soort, omschrijving AS naam, fase, afgerond FROM projecten WHERE klant_id = ? ORDER BY id DESC', [$k['id']])->fetchAll(); unset($k['id']); }
+            foreach ($ks as &$k) {
+                $k['projecten'] = q('SELECT nummer, soort, omschrijving AS naam, fase, afgerond FROM projecten WHERE klant_id = ? ORDER BY id DESC', [$k['id']])->fetchAll();
+                $k['locaties'] = q('SELECT id, naam, adres, contact FROM locaties WHERE klant_id = ? ORDER BY id', [$k['id']])->fetchAll();
+                $k['installaties'] = q('SELECT i.id, i.locatie_id, i.soort, i.merk, i.type, i.serienummer, i.monitoring, i.monitoring_id, i.garantie_tot, i.status FROM installaties i JOIN locaties l ON l.id = i.locatie_id WHERE l.klant_id = ? ORDER BY i.id', [$k['id']])->fetchAll();
+                $k['klant_id'] = $k['id']; unset($k['id']);
+            }
             uit($ks);
             break;
 
@@ -689,6 +700,133 @@ try {
             uit(['ok' => true]);
             break;
 
+        // ---------- Ronde 2: locaties, installaties, werkbon, begroting, termijnen, facturen ----------
+        // Locatie aanmaken of bijwerken. {"klant_id":12,"naam":"Loods 2","adres":"..","contact":"..","telefoon":".."} of {"id":3,...} of {"project":"PRJ-296"} (koppelt en geeft de locatie)
+        case 'locatie':
+            if (!empty($d['project']) && empty($d['id'])) {
+                $pid = pid_of_fout((string)$d['project']);
+                $lid = project_koppel_locatie($pid);
+                uit($lid ? q('SELECT * FROM locaties WHERE id = ?', [$lid])->fetch() : ['fout' => 'project heeft geen klant en geen adres']);
+                break;
+            }
+            $velden = ['naam' => 150, 'adres' => 255, 'contact' => 255, 'telefoon' => 50];
+            if (!empty($d['id'])) {
+                $l = q('SELECT * FROM locaties WHERE id = ?', [(int)$d['id']])->fetch();
+                if (!$l) { uit(['fout' => 'locatie niet gevonden']); exit(1); }
+                foreach ($velden as $k => $max) if (clean_text($d[$k] ?? '') !== '' && ($l[$k] === '' || !empty($d['overschrijf']))) q("UPDATE locaties SET `$k` = ? WHERE id = ?", [mb_substr(clean_text($d[$k]), 0, $max), $l['id']]);
+                uit(q('SELECT * FROM locaties WHERE id = ?', [$l['id']])->fetch());
+                break;
+            }
+            if (empty($d['klant_id']) || !q('SELECT 1 FROM klanten WHERE id = ?', [(int)$d['klant_id']])->fetch()) { uit(['fout' => 'klant_id ontbreekt of bestaat niet (zoek met vapp.py klant)']); exit(1); }
+            $lid = locatie_zoek_of_maak((int)$d['klant_id'], (string)($d['adres'] ?? ''), (string)($d['naam'] ?? ''));
+            foreach ($velden as $k => $max) if (clean_text($d[$k] ?? '') !== '') q("UPDATE locaties SET `$k` = ? WHERE id = ? AND `$k` = ''", [mb_substr(clean_text($d[$k]), 0, $max), $lid]);
+            uit(q('SELECT * FROM locaties WHERE id = ?', [$lid])->fetch());
+            break;
+
+        // Installatie in het register. Nieuw: {"project":"PRJ-296","soort":"batterij","merk":"Dyness","type":"..","serienummer":"..","monitoring":"Teleport","monitoring_id":"..","garantie_tot":"2036-12-01"}
+        // Bestaande (id of zelfde serienummer): vult alleen lege velden, tenzij "overschrijf": true. Nooit wachtwoorden.
+        case 'installatie':
+            if (preg_match('/\b(wachtwoord|password|pass)\b/i', (string)($d['notitie'] ?? ''))) { uit(['fout' => 'geen wachtwoorden in het register']); exit(1); }
+            $r = installatie_opslaan($d, 'Claude', empty($d['overschrijf']));
+            if (isset($r['fout'])) { uit($r); exit(1); }
+            uit(['id' => $r['id'], 'nieuw' => $r['nieuw'], 'installatie' => q('SELECT * FROM installaties WHERE id = ?', [$r['id']])->fetch()]);
+            break;
+
+        // Installaties zoeken. {"project":"PRJ-296"} of {"klant_id":12} of {"q":"serienummer, monitoring-id, merk of type"}
+        case 'installaties':
+            if (!empty($d['project'])) { $pr = q('SELECT * FROM projecten WHERE id = ?', [pid_of_fout((string)$d['project'])])->fetch(); uit(installaties_van_project($pr)); break; }
+            if (!empty($d['klant_id'])) { uit(q('SELECT i.* FROM installaties i JOIN locaties l ON l.id = i.locatie_id WHERE l.klant_id = ? ORDER BY i.id', [(int)$d['klant_id']])->fetchAll()); break; }
+            if (clean_text($d['q'] ?? '') === '') { uit(['fout' => 'geef project, klant_id of q']); exit(1); }
+            $zoek = '%' . clean_text($d['q']) . '%';
+            uit(q("SELECT i.*, l.adres, k.naam klant, k.id klant_id FROM installaties i LEFT JOIN locaties l ON l.id = i.locatie_id LEFT JOIN klanten k ON k.id = l.klant_id
+                   WHERE i.serienummer LIKE ? OR i.monitoring_id LIKE ? OR i.merk LIKE ? OR i.type LIKE ? ORDER BY i.id DESC LIMIT 25", [$zoek, $zoek, $zoek, $zoek])->fetchAll());
+            break;
+
+        // Ticket aan een installatie koppelen. {"ticket":"WW-0123","installatie":5}
+        case 'ticket_installatie':
+            $pid = pid_of_fout((string)($d['ticket'] ?? ''));
+            $iid = (int)($d['installatie'] ?? 0);
+            if (!q('SELECT 1 FROM installaties WHERE id = ?', [$iid])->fetch()) { uit(['fout' => 'installatie niet gevonden']); exit(1); }
+            q('UPDATE projecten SET installatie_id = ? WHERE id = ?', [$iid, $pid]);
+            uit(['ok' => true]);
+            break;
+
+        // Werkbon als concept (na "Werk klaar"). Vult alleen lege velden van de concept-werkbon van die dag; een getekende werkbon blijft onaangeroerd.
+        // {"project":"PRJ-296","datum":"2026-11-30","werk":"..","materiaal":"..","opmerkingen":".."}
+        case 'werkbon_concept':
+            $pid = pid_of_fout((string)($d['project'] ?? ''));
+            $datum = geldige_datum($d['datum'] ?? '') ?? vandaag();
+            if (q("SELECT 1 FROM werkbonnen WHERE project_id = ? AND datum = ? AND status = 'getekend'", [$pid, $datum])->fetch() && empty($d['tweede'])) { uit(['fout' => 'werkbon van die dag is al getekend']); exit(1); }
+            $wid = q("SELECT id FROM werkbonnen WHERE project_id = ? AND datum = ? AND status = 'concept' ORDER BY id DESC LIMIT 1", [$pid, $datum])->fetchColumn();
+            $wid = $wid ? (int)$wid : werkbon_nieuw($pid, $datum, ['id' => null, 'naam' => ''], 'Claude');
+            $w = q('SELECT * FROM werkbonnen WHERE id = ?', [$wid])->fetch();
+            $gevuld = [];
+            foreach (['werk', 'materiaal', 'opmerkingen'] as $k) {
+                $v = trim((string)($d[$k] ?? ''));
+                if ($v !== '' && trim((string)$w[$k]) === '') { q("UPDATE werkbonnen SET `$k` = ? WHERE id = ?", [mb_substr($v, 0, 10000), $wid]); $gevuld[] = $k; }
+            }
+            if ($gevuld) {
+                q("UPDATE werkbonnen SET concept_door = 'Claude', bijgewerkt_door = 'Claude' WHERE id = ?", [$wid]);
+                $pr = q('SELECT nummer, omschrijving FROM projecten WHERE id = ?', [$pid])->fetch();
+                seintje_project($pid, 'Werkbon klaargezet door Claude, graag nakijken en laten tekenen: ' . $pr['nummer'], 'werkbon.php?id=' . $wid);
+            }
+            uit(['id' => $wid, 'gevuld' => $gevuld]);
+            break;
+
+        // Werkbonnen lezen. {"project":"PRJ-296"} of {"sinds":"2026-11-25"}
+        case 'werkbonnen':
+            $w = []; $p = [];
+            if (!empty($d['project'])) { $w[] = 'w.project_id = ?'; $p[] = pid_of_fout((string)$d['project']); }
+            if ($s = geldige_datum($d['sinds'] ?? '')) { $w[] = 'w.datum >= ?'; $p[] = $s; }
+            if (!$w) $w[] = 'w.datum >= CURDATE() - INTERVAL 14 DAY';
+            uit(q('SELECT w.id, pr.nummer, w.datum, w.status, w.monteurs, w.werk, w.materiaal, w.uren, w.opmerkingen, w.klant_naam, w.getekend_op, w.concept_door
+                   FROM werkbonnen w JOIN projecten pr ON pr.id = w.project_id WHERE ' . implode(' AND ', $w) . ' ORDER BY w.datum DESC, w.id DESC LIMIT 100', $p)->fetchAll());
+            break;
+
+        // Begroting uit de offerte (bij een gewonnen deal). Bedragen excl. btw.
+        // {"project":"PRJ-301","bron":"Offorte offerte 2026-123","vervang":true,"regels":[{"soort":"materiaal|arbeid|overig","omschrijving":"..","aantal":1,"eenheid":"stuks","prijs":12500}]}
+        case 'begroting':
+            $pid = pid_of_fout((string)($d['project'] ?? ''));
+            if (!array_key_exists('regels', $d)) { uit(['regels' => begroting_regels($pid), 'totaal' => begroting_totaal($pid), 'termijnen' => termijnen_van($pid)]); break; }
+            if (!is_array($d['regels']) || !$d['regels']) { uit(['fout' => 'regels ontbreken']); exit(1); }
+            if (empty($d['vervang']) && q('SELECT 1 FROM begroting WHERE project_id = ?', [$pid])->fetch()) { uit(['fout' => 'er staat al een begroting; stuur "vervang": true om hem te vervangen']); exit(1); }
+            $n = begroting_opslaan($pid, $d['regels'], 'Claude: ' . clean_text($d['bron'] ?? ''), true);
+            q("INSERT INTO project_berichten (project_id, datum, bron, van, onderwerp, tekst) VALUES (?, ?, 'claude', 'Claude', ?, ?)",
+                [$pid, date('Y-m-d H:i:s'), 'Begroting ingevuld (' . $n . ' regels)', 'Bron: ' . mb_substr(clean_text($d['bron'] ?? 'offerte'), 0, 200) . '. Totaal ' . fmt_eur(begroting_totaal($pid)) . ' excl. btw.']);
+            uit(['regels' => $n, 'totaal' => begroting_totaal($pid)]);
+            break;
+
+        // Betaaltermijnen. {"project":"PRJ-301","termijnen":[{"omschrijving":"Bij opdracht","percentage":30,"moment":"opdracht"},{"omschrijving":"Bij levering","percentage":60,"moment":"levering"},{"omschrijving":"Bij oplevering","percentage":10,"moment":"oplevering"}]}
+        // moment: opdracht, levering, installatie, oplevering of handmatig. Een vast bedrag mag ook ("bedrag").
+        case 'termijnen':
+            $pid = pid_of_fout((string)($d['project'] ?? ''));
+            $r = termijnen_opslaan($pid, (array)($d['termijnen'] ?? []));
+            if (isset($r['fout'])) { uit($r); exit(1); }
+            uit($r + ['lijst' => termijnen_van($pid)]);
+            break;
+
+        // Factuurvoorstel (concept; Ruben of Berend keurt goed en maakt de factuur in de boekhouding).
+        // {"project":"PRJ-301","termijn":1} (volgnummer) of {"project":"WW-0123","regie":true} (uren en materiaal sinds het vorige voorstel)
+        case 'factuur_voorstel':
+            $pid = pid_of_fout((string)($d['project'] ?? ''));
+            if (!empty($d['regie'])) $r = factuur_voorstel_regie($pid, 'Claude');
+            else {
+                $tid = q('SELECT id FROM termijnen WHERE project_id = ? AND volgorde = ?', [$pid, (int)($d['termijn'] ?? 0)])->fetchColumn();
+                $r = $tid ? factuur_voorstel_termijn((int)$tid, 'Claude') : ['fout' => 'termijn niet gevonden'];
+            }
+            if (isset($r['fout'])) { uit($r); exit(1); }
+            seintje_project($pid, 'Factuurvoorstel klaargezet door Claude', 'facturen.php?id=' . $r['factuur']);
+            uit($r);
+            break;
+
+        // Factuurvoorstellen en termijnen die klaar zijn om te factureren. {"status":"concept"} (optioneel)
+        case 'facturen':
+            $st = isset(FACTUUR_STATUS[$d['status'] ?? '']) ? $d['status'] : null;
+            uit(['voorstellen' => q('SELECT f.id, pr.nummer, f.soort, f.omschrijving, f.status, f.boekhouding_nummer, f.concept_door, f.aangemaakt, (SELECT COALESCE(SUM(aantal * prijs), 0) FROM factuurregels r WHERE r.factuur_id = f.id) totaal_excl
+                                         FROM facturen f JOIN projecten pr ON pr.id = f.project_id WHERE ' . ($st ? 'f.status = ?' : "f.status IN ('concept','akkoord','geboekt')") . ' ORDER BY f.id DESC LIMIT 100', $st ? [$st] : [])->fetchAll(),
+                 'klaar_om_te_factureren' => array_map(fn($t) => ['project' => $t['nummer'], 'termijn' => (int)$t['volgorde'], 'omschrijving' => $t['omschrijving'], 'moment' => $t['moment']], termijnen_te_factureren())]);
+            break;
+
         // Kleine standen lezen of zetten (watermerken, laatste run). {"sleutel":"licht_laatste"} leest; met "waarde" (tekst of JSON) zet. {} geeft alles.
         case 'brein_stand':
             if (empty($d['sleutel'])) { uit(q("SELECT sleutel, waarde, bijgewerkt FROM brein_stand WHERE sleutel <> 'slot' ORDER BY sleutel")->fetchAll()); break; }
@@ -705,7 +843,8 @@ try {
         default:
             $clVoor = null;
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'whatsapp_in', 'whatsapp_chats', 'whatsapp_indelen', 'whatsapp', 'brein_slot', 'brein_slot_vrij', 'brein_stand', 'brein_lijst', 'taak_opschoonvoorstel', 'taak_opschoonvoorstellen', 'oplevering_concept', 'vraag_antwoord', 'claude_log', 'tweestaps_uit']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'whatsapp_in', 'whatsapp_chats', 'whatsapp_indelen', 'whatsapp', 'brein_slot', 'brein_slot_vrij', 'brein_stand', 'brein_lijst', 'taak_opschoonvoorstel', 'taak_opschoonvoorstellen', 'oplevering_concept', 'vraag_antwoord', 'claude_log', 'tweestaps_uit',
+                'locatie', 'installatie', 'installaties', 'ticket_installatie', 'werkbon_concept', 'werkbonnen', 'begroting', 'termijnen', 'factuur_voorstel', 'facturen']]);
     }
     if (is_array($clVoor)) {
         $clNa = array_keys($clVoor);
