@@ -266,7 +266,7 @@ function tarieven(): array
 {
     $r = q("SELECT waarde FROM brein_stand WHERE sleutel = 'tarieven'")->fetchColumn();
     $t = $r ? (json_decode((string)$r, true) ?: []) : [];
-    return ['uurtarief' => (float)($t['uurtarief'] ?? 0), 'reistarief' => (float)($t['reistarief'] ?? 0), 'opslag' => (float)($t['opslag'] ?? 0)];
+    return ['uurtarief' => (float)($t['uurtarief'] ?? 0), 'reistarief' => (float)($t['reistarief'] ?? 0), 'opslag' => (float)($t['opslag'] ?? 0), 'kostprijs' => (float)($t['kostprijs'] ?? 0)];
 }
 function begroting_regels(int $pid): array { return q('SELECT * FROM begroting WHERE project_id = ? ORDER BY FIELD(soort, "materiaal", "arbeid", "overig"), id', [$pid])->fetchAll(); }
 function begroting_totaal(int $pid): float { return (float)q('SELECT COALESCE(SUM(aantal * prijs), 0) FROM begroting WHERE project_id = ?', [$pid])->fetchColumn(); }
@@ -305,8 +305,8 @@ function termijnen_opslaan(int $pid, array $termijnen): array
         $oms = mb_substr(clean_text($t['omschrijving'] ?? ''), 0, 150);
         $pct = num($t['percentage'] ?? null); $bed = num($t['bedrag'] ?? null);
         if ($oms === '' || ($pct === null && $bed === null)) continue;
-        q('INSERT INTO termijnen (project_id, volgorde, omschrijving, percentage, bedrag, moment) VALUES (?,?,?,?,?,?)',
-            [$pid, ++$i, $oms, $pct, $bed, isset(TERMIJN_MOMENTEN[$t['moment'] ?? '']) ? $t['moment'] : 'handmatig']);
+        q('INSERT INTO termijnen (project_id, volgorde, omschrijving, percentage, bedrag, moment, controleren) VALUES (?,?,?,?,?,?,?)',
+            [$pid, ++$i, $oms, $pct, $bed, isset(TERMIJN_MOMENTEN[$t['moment'] ?? '']) ? $t['moment'] : 'handmatig', !empty($t['controleren']) ? 1 : 0]);
     }
     return ['termijnen' => $i];
 }
@@ -377,6 +377,20 @@ function factuur_zet_status(int $fid, string $status, array $u, string $nummer =
     }
     return 'Factuurvoorstel: ' . strtolower(FACTUUR_STATUS[$status]) . '.';
 }
+/** Termijn die al buiten de app is gefactureerd: vastleggen als geboekt (met factuurnummer), zodat er geen tweede voorstel komt. */
+function termijn_al_gefactureerd(int $tid, string $nummer, array $u): string
+{
+    $t = q('SELECT * FROM termijnen WHERE id = ?', [$tid])->fetch();
+    if (!$t) return 'Termijn niet gevonden.';
+    $r = factuur_voorstel_termijn($tid, (string)$u['naam']);
+    if (isset($r['fout']) && empty($r['factuur'])) {
+        // Geen begroting: leg het vast met bedrag 0, het nummer is wat telt
+        $fid = factuur_maak((int)$t['project_id'], 'termijn', 'Termijn ' . (int)$t['volgorde'] . ': ' . $t['omschrijving'], [['omschrijving' => 'Termijn ' . (int)$t['volgorde'] . ': ' . $t['omschrijving'], 'aantal' => 1, 'eenheid' => 'post', 'prijs' => 0, 'bron' => 'voor de app']], $tid, (string)$u['naam']);
+    } else $fid = (int)$r['factuur'];
+    q('UPDATE termijnen SET controleren = 0 WHERE id = ?', [$tid]);
+    factuur_zet_status($fid, 'geboekt', $u, clean_text($nummer) !== '' ? $nummer : 'buiten de app');
+    return 'Vastgelegd als al gefactureerd.';
+}
 /** Termijnen die volgens hun moment nu gefactureerd kunnen worden (voor het brein en de pagina Facturen). */
 function termijnen_te_factureren(): array
 {
@@ -393,4 +407,30 @@ function termijnen_te_factureren(): array
         'oplevering' => (bool)$t['opgeleverd'],
         default => false,
     }));
+}
+
+// ---------- Nacalculatie (ronde 3, 28-11-2026): begroot tegenover werkelijk ----------
+/**
+ * Kosten en opbrengst van een project. Kosten = materiaal uit voorraad (inkoopwaarde van de boekingen)
+ * + inkoopfacturen van bestellingen die direct op het project zijn geleverd + uren maal kostprijs.
+ * Opbrengst = de begroting (projecten) of wat gefactureerd is (service).
+ */
+function nacalculatie(int $pid): array
+{
+    $tar = tarieven();
+    $beg = q("SELECT soort, COALESCE(SUM(aantal * prijs), 0) s FROM begroting WHERE project_id = ? GROUP BY soort", [$pid])->fetchAll(PDO::FETCH_KEY_PAIR);
+    $voorraad = (float)q("SELECT COALESCE(SUM(-m.aantal * COALESCE(m.prijs, 0)), 0) FROM mutaties m WHERE m.project_id = ? AND m.type IN ('uit','retour','correctie')", [$pid])->fetchColumn();
+    $direct = (float)q("SELECT COALESCE(SUM(factuurbedrag), 0) FROM bestellingen WHERE project_id = ? AND levering = 'project' AND factuurbedrag IS NOT NULL", [$pid])->fetchColumn();
+    $uren = (float)q('SELECT COALESCE(SUM(uren), 0) FROM uren WHERE project_id = ?', [$pid])->fetchColumn();
+    $gefact = (float)q("SELECT COALESCE(SUM(r.aantal * r.prijs), 0) FROM facturen f JOIN factuurregels r ON r.factuur_id = f.id WHERE f.project_id = ? AND f.status <> 'vervallen'", [$pid])->fetchColumn();
+    $begroot = array_sum(array_map('floatval', $beg));
+    $kosten = $voorraad + $direct + $uren * $tar['kostprijs'];
+    $opbrengst = $begroot > 0 ? $begroot : $gefact;
+    return [
+        'begroot' => $begroot, 'begroot_materiaal' => (float)($beg['materiaal'] ?? 0), 'begroot_arbeid' => (float)($beg['arbeid'] ?? 0),
+        'materiaal_voorraad' => $voorraad, 'materiaal_direct' => $direct, 'uren' => $uren, 'kosten_uren' => $uren * $tar['kostprijs'],
+        'kosten' => $kosten, 'gefactureerd' => $gefact, 'opbrengst' => $opbrengst,
+        'marge' => $opbrengst - $kosten, 'marge_pct' => $opbrengst > 0 ? round(($opbrengst - $kosten) / $opbrengst * 100, 1) : null,
+        'zonder_kostprijs' => $tar['kostprijs'] <= 0,
+    ];
 }

@@ -625,3 +625,4 @@ table.invoer input, table.invoer select { width: 100%; min-width: 4rem; }
 table.invoer td { padding: .25rem .3rem; }
 tr.muted td { opacity: .6; }
 .knoppen2.drie { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kbericht { border-top: 1px solid #e3e7e1; padding-top: .8rem; margin-top: .8rem; }

@@ -223,6 +223,7 @@ function beslissers(): array { return array_map('intval', array_column(q('SELECT
 function seintje(int $voor, string $tekst, string $link = ''): void
 {
     q('INSERT INTO seintjes (gebruiker_id, tekst, link) VALUES (?,?,?)', [$voor, mb_substr(clean_text($tekst), 0, 500), mb_substr($link, 0, 255)]);
+    push_later($voor);  // telefoon een tik geven als die meldingen aan heeft
 }
 /** Seintje aan de projectleider; is die er niet, dan aan Ruben en Berend. De afzender krijgt het niet zelf. */
 function seintje_project(?int $pid, string $tekst, string $link, int $nietAan = 0): void
@@ -484,6 +485,7 @@ function ticket_opslaan(array $d, string $wie): array
     foreach ($velden as $k => $v) if ($v !== '' && ($nieuw || !empty($d['overschrijf']) || ($best[$k] ?? '') === '' || $best[$k] === null)) q("UPDATE projecten SET `$k` = ? WHERE id = ?", [$v, $pid]);
     if ($titel !== '' && !$nieuw && !empty($d['overschrijf'])) q('UPDATE projecten SET omschrijving = ? WHERE id = ?', [mb_substr($titel, 0, 255), $pid]);
     project_koppel_klant($pid);
+    if ($nieuw) ticket_reactietijd($pid);
     if (isset($d['fase']) && isset(SERVICE_FASES[$d['fase']])) ticket_fase($pid, $d['fase']);
     if (($d['eigenaar'] ?? '') !== '' && ($g = gebruiker_zoek((string)$d['eigenaar']))) q('UPDATE projecten SET leider_id = ? WHERE id = ?', [$g, $pid]);
     if ($nieuw) {
@@ -500,6 +502,13 @@ function ticket_fase(int $pid, string $fase): void
 {
     if (!isset(SERVICE_FASES[$fase])) throw new InvalidArgumentException('onbekende fase');
     q('UPDATE projecten SET fase = ?, afgerond = ?, opgelost_op = ' . ($fase === 'opgelost' ? 'COALESCE(opgelost_op, UTC_TIMESTAMP())' : 'NULL') . ' WHERE id = ?', [$fase, $fase === 'opgelost' ? 1 : 0, $pid]);
+    // Reactietijd: het eerste moment dat een ticket uit "Nieuwe melding" gaat, telt als gereageerd
+    if ($fase !== 'melding') q('UPDATE projecten SET gereageerd_op = COALESCE(gereageerd_op, UTC_TIMESTAMP()) WHERE id = ?', [$pid]);
+    // Opgelost: alvast een bericht voor de klant klaarzetten (kantoor verstuurt het zelf)
+    if ($fase === 'opgelost' && ($pr = q('SELECT * FROM projecten WHERE id = ?', [$pid])->fetch()) && klant_email($pr) !== '' && !str_contains((string)$pr['labels'], 'onderhoud')) {
+        [$ond, $tekst] = klantbericht_sjabloon($pr, 'opgelost');
+        klantbericht_concept($pid, 'opgelost', $ond, $tekst, 'app', 'opgelost:' . $pid);
+    }
 }
 
 // ---------- Agenda ----------

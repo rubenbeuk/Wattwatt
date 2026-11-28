@@ -9,7 +9,8 @@ $pr = q('SELECT * FROM projecten WHERE nummer = ?', [$nr])->fetch();
 if (!$pr) { flash('Project niet gevonden.', 'err'); redirect('projecten.php'); }
 
 const OPL_CHECKS = ['check_inbedrijf' => 'Inbedrijfstelling gedaan (met fabrikant als dat nodig is)', 'check_monitoring' => 'Monitoring/EMS online en zichtbaar op afstand',
-    'check_uitleg' => 'Klant uitleg gegeven', 'check_keuring' => 'Keuring/meting gedaan (indien van toepassing)'];
+    'check_uitleg' => 'Klant uitleg gegeven', 'check_keuring' => 'Keuring/meting gedaan (indien van toepassing)',
+    'check_netbeheer' => 'Aangemeld bij de netbeheerder (energieleveren.nl; batterij en/of PV)'];
 const OPL_TEKST = ['serienummers' => ['Serienummers', 'per apparaat: batterij, omvormer, EMS, laadpaal, meter'], 'netwerk' => ['Netwerk', 'IP-adressen, switch, router, hoe ingelogd (geen wachtwoorden: die gaan in de kluis)'],
     'kabel' => ['Kabel', 'soort en meters per tracé'], 'materiaal' => ['Gebruikt materiaal', 'wat er afwijkt van de materiaallijst of extra is gebruikt'], 'opmerkingen' => ['Opmerkingen', 'bijzonderheden, wat nog moet, afspraken met de klant']];
 

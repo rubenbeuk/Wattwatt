@@ -542,6 +542,59 @@ function schema_migreren(): array
   CONSTRAINT fk_fr_factuur FOREIGN KEY (factuur_id) REFERENCES facturen(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 ,
+// --- Ronde 3 (28-11-2026): onderhoudscontracten met reactietijd, klantberichten en pushmeldingen ---
+"CREATE TABLE IF NOT EXISTS contracten (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  klant_id INT UNSIGNED NULL,
+  locatie_id INT UNSIGNED NULL,
+  installatie_id INT UNSIGNED NULL,
+  omschrijving VARCHAR(255) NOT NULL DEFAULT '',
+  soort VARCHAR(20) NOT NULL DEFAULT 'onderhoud',
+  startdatum DATE NULL,
+  einddatum DATE NULL,
+  interval_maanden TINYINT UNSIGNED NOT NULL DEFAULT 12,
+  volgende_onderhoud DATE NULL,
+  reactietijd_uren SMALLINT UNSIGNED NULL,
+  prijs_jaar DECIMAL(10,2) NULL,
+  status ENUM('actief','opgezegd','verlopen') NOT NULL DEFAULT 'actief',
+  notitie TEXT NULL,
+  bijgewerkt_door VARCHAR(100) NOT NULL DEFAULT '',
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  bijgewerkt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX (klant_id), INDEX (locatie_id), INDEX (status, volgende_onderhoud),
+  CONSTRAINT fk_con_klant FOREIGN KEY (klant_id) REFERENCES klanten(id) ON DELETE SET NULL,
+  CONSTRAINT fk_con_locatie FOREIGN KEY (locatie_id) REFERENCES locaties(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+"CREATE TABLE IF NOT EXISTS klantberichten (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  project_id INT UNSIGNED NOT NULL,
+  soort VARCHAR(20) NOT NULL DEFAULT 'vrij',
+  sleutel VARCHAR(60) NULL,
+  aan VARCHAR(150) NOT NULL DEFAULT '',
+  onderwerp VARCHAR(255) NOT NULL DEFAULT '',
+  tekst TEXT NULL,
+  status ENUM('concept','verstuurd','vervallen') NOT NULL DEFAULT 'concept',
+  concept_door VARCHAR(100) NOT NULL DEFAULT '',
+  verstuurd_door VARCHAR(100) NOT NULL DEFAULT '',
+  verstuurd_op DATETIME NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (project_id), INDEX (status), UNIQUE KEY uq_kb_sleutel (sleutel),
+  CONSTRAINT fk_kb_project FOREIGN KEY (project_id) REFERENCES projecten(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+"CREATE TABLE IF NOT EXISTS push_abonnementen (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  gebruiker_id INT UNSIGNED NOT NULL,
+  endpoint TEXT NOT NULL,
+  endpoint_hash CHAR(64) NOT NULL,
+  apparaat VARCHAR(150) NOT NULL DEFAULT '',
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  laatst_ok DATETIME NULL,
+  fouten TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_push (endpoint_hash), INDEX (gebruiker_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
 "CREATE TABLE IF NOT EXISTS brein_stand (
   sleutel VARCHAR(100) NOT NULL PRIMARY KEY,
   waarde TEXT NOT NULL,
@@ -599,6 +652,14 @@ function schema_migreren(): array
         ['uren', 'bron', "VARCHAR(10) NOT NULL DEFAULT 'hand' AFTER omschrijving"],
         ['uren', 'akkoord_door', "VARCHAR(100) NOT NULL DEFAULT '' AFTER bron"],
         ['uren', 'akkoord_op', "DATETIME NULL AFTER akkoord_door"],
+        // Termijnen van lopende projecten: eerst controleren of ze al buiten de app zijn gefactureerd (28-11-2026)
+        ['termijnen', 'controleren', "TINYINT(1) NOT NULL DEFAULT 0 AFTER moment"],
+        // Ronde 3: ticket hoort bij een contract en heeft een reactietijd
+        ['projecten', 'contract_id', "INT UNSIGNED NULL AFTER installatie_id"],
+        ['projecten', 'reactie_voor', "DATETIME NULL AFTER contract_id"],
+        ['projecten', 'gereageerd_op', "DATETIME NULL AFTER reactie_voor"],
+        // Aanmelding bij de netbeheerder hoort bij de oplevering (energieleveren.nl)
+        ['opleveringen', 'check_netbeheer', "TINYINT(1) NOT NULL DEFAULT 0 AFTER check_keuring"],
     ];
     foreach ($kolommen as [$tabel, $kolom, $def]) {
         $bestaat = q("SELECT COUNT(*) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [$tabel, $kolom])->fetch()['c'];

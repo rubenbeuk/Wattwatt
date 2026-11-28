@@ -17,7 +17,8 @@ const BREIN_OPDRACHTEN = ['materiaallijst', 'bestelling', 'geleverd', 'factuur',
     'instructies', 'notities', 'notitie_verwerkt', 'projecten', 'project_info', 'project_bericht', 'mijlpaal', 'mijlpalen', 'project_samenvatting', 'project_berichten',
     'ticket', 'tickets', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'project_opruimen', 'whatsapp', 'whatsapp_chats', 'whatsapp_indelen', 'brein_slot', 'brein_slot_vrij', 'brein_stand',
     'brein_lijst', 'taak_opschoonvoorstel', 'taak_opschoonvoorstellen', 'oplevering_concept', 'vraag_antwoord', 'claude_log',
-    'locatie', 'installatie', 'installaties', 'ticket_installatie', 'werkbon_concept', 'werkbonnen', 'begroting', 'termijnen', 'factuur_voorstel', 'facturen'];
+    'locatie', 'installatie', 'installaties', 'ticket_installatie', 'werkbon_concept', 'werkbonnen', 'begroting', 'termijnen', 'factuur_voorstel', 'facturen',
+    'contract', 'contracten', 'klantbericht', 'klantberichten'];
 header('Content-Type: application/json; charset=utf-8');
 if (!in_array($opdracht, BREIN_OPDRACHTEN, true)) { http_response_code(400); echo json_encode(['fout' => 'onbekende opdracht']); exit; }
 $invoer = (string)file_get_contents('php://input', false, null, 0, 2_000_000);

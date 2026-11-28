@@ -33,7 +33,7 @@ function page_head(string $title, string $active = ''): void
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon.svg">
 <title><?= e($title) ?> · <?= e(APP_NAME) ?></title>
-<link rel="stylesheet" href="assets/app.css?v=25">
+<link rel="stylesheet" href="assets/app.css?v=26">
 </head>
 <body>
 <?php if ($u): ?>
@@ -76,7 +76,7 @@ function page_foot(array $scripts = []): void
 </main>
 <?php foreach ($scripts as $s): ?><script src="<?= e($s) ?>"></script>
 <?php endforeach; ?>
-<script src="assets/app.js?v=20"></script>
+<script src="assets/app.js?v=21"></script>
 </body>
 </html>
 <?php

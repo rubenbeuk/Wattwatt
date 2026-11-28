@@ -48,6 +48,8 @@ function cl_doelen(string $opdracht, array $d, $uit = null): array
         'ticket_installatie' => [['projecten', $prj($d['ticket'] ?? '')]],
         'werkbon_concept' => [['werkbonnen', ($p = $prj($d['project'] ?? '')) ? $id("SELECT id FROM werkbonnen WHERE project_id = ? AND datum = ? AND status = 'concept' ORDER BY id DESC LIMIT 1", [$p, geldige_datum($d['datum'] ?? '') ?? vandaag()]) : null]],
         'factuur_voorstel' => [['facturen', $u['factuur'] ?? null]],
+        'contract' => [['contracten', (int)($d['id'] ?? 0) ?: ($u['id'] ?? null)]],
+        'klantbericht' => [['klantberichten', (clean_text((string)($d['sleutel'] ?? '')) !== '' ? $id('SELECT id FROM klantberichten WHERE sleutel = ?', [clean_text((string)$d['sleutel'])]) : null) ?? ($u['id'] ?? null)]],
         default => [],
     };
     return array_values(array_filter($lijst, fn($x) => $x[1]));
@@ -748,7 +750,44 @@ try {
             $iid = (int)($d['installatie'] ?? 0);
             if (!q('SELECT 1 FROM installaties WHERE id = ?', [$iid])->fetch()) { uit(['fout' => 'installatie niet gevonden']); exit(1); }
             q('UPDATE projecten SET installatie_id = ? WHERE id = ?', [$iid, $pid]);
-            uit(['ok' => true]);
+            $c = ticket_reactietijd($pid);
+            uit(['ok' => true, 'contract' => $c ? contract_naam($c) : null]);
+            break;
+
+        // Onderhoudscontract vastleggen of bijwerken (ronde 3). Alleen wat in een mail, offerte of notitie staat; nooit zelf verzinnen.
+        // {"klant_id":12,"locatie_id":30,"omschrijving":"Onderhoud batterij","soort":"onderhoud","startdatum":"2026-01-01","interval_maanden":12,"reactietijd_uren":24,"prijs_jaar":450}
+        // Bijwerken: {"id":3, ...}
+        case 'contract':
+            $r = contract_opslaan($d, 'Claude');
+            if (isset($r['fout'])) { uit($r); exit(1); }
+            uit(['id' => $r['id'], 'nieuw' => $r['nieuw'], 'contract' => q('SELECT * FROM contracten WHERE id = ?', [$r['id']])->fetch()]);
+            break;
+
+        // Contracten bekijken. {} = alle actieve; {"klant_id":12}; {"onderhoud":true} maakt ook de onderhoudstickets die binnen een maand vallen
+        case 'contracten':
+            $nieuw = !empty($d['onderhoud']) ? contracten_onderhoud_maken('Claude') : [];
+            $w = !empty($d['klant_id']) ? ['c.klant_id = ?', [(int)$d['klant_id']]] : ["c.status = 'actief'", []];
+            uit(['onderhoudstickets_gemaakt' => $nieuw, 'contracten' => q("SELECT c.*, k.naam klant, l.adres FROM contracten c LEFT JOIN klanten k ON k.id = c.klant_id LEFT JOIN locaties l ON l.id = c.locatie_id WHERE {$w[0]} ORDER BY c.volgende_onderhoud IS NULL, c.volgende_onderhoud LIMIT 200", $w[1])->fetchAll(),
+                'reactietijd_verstreken' => q("SELECT nummer, klant, omschrijving, reactie_voor FROM projecten WHERE soort = 'service' AND fase = 'melding' AND gereageerd_op IS NULL AND reactie_voor IS NOT NULL AND reactie_voor < UTC_TIMESTAMP() LIMIT 50")->fetchAll()]);
+            break;
+
+        // Concept-bericht aan de klant (ronde 3). Kantoor leest het na en verstuurt het zelf; Claude verstuurt nooit iets.
+        // {"project":"WW-…","soort":"ingepland|dag_ervoor|opgelost|oplevering|vrij","onderwerp":"..","tekst":"..","sleutel":"dag_ervoor:WW-…:2026-12-01","aan":"optioneel"}
+        // Zonder onderwerp/tekst: de standaardtekst van de app ({"datum":"2026-12-01"} voor de afspraakdatum).
+        case 'klantbericht':
+            $pid = pid_of_fout((string)($d['project'] ?? ''));
+            $pr = q('SELECT * FROM projecten WHERE id = ?', [$pid])->fetch();
+            [$ond, $tekst] = klantbericht_sjabloon($pr, (string)($d['soort'] ?? 'vrij'), geldige_datum($d['datum'] ?? null));
+            $r = klantbericht_concept($pid, (string)($d['soort'] ?? 'vrij'), (string)($d['onderwerp'] ?? '') ?: $ond, (string)($d['tekst'] ?? '') ?: $tekst, 'Claude', $d['sleutel'] ?? null, $d['aan'] ?? null);
+            if (isset($r['fout'])) { uit($r); exit(1); }
+            uit($r + ['aan' => q('SELECT aan FROM klantberichten WHERE id = ?', [$r['id']])->fetchColumn()]);
+            break;
+
+        // Open concepten en wat recent is verstuurd. {"project":"…"} optioneel
+        case 'klantberichten':
+            $pid = !empty($d['project']) ? pid_of_fout((string)$d['project']) : null;
+            uit(['concepten' => klantberichten_open($pid),
+                'verstuurd_14_dagen' => q("SELECT b.id, p.nummer, b.soort, b.sleutel, b.onderwerp, b.verstuurd_op FROM klantberichten b JOIN projecten p ON p.id = b.project_id WHERE b.status = 'verstuurd' AND b.verstuurd_op >= UTC_TIMESTAMP() - INTERVAL 14 DAY" . ($pid ? ' AND b.project_id = ' . $pid : '') . ' ORDER BY b.verstuurd_op DESC LIMIT 50')->fetchAll()]);
             break;
 
         // Werkbon als concept (na "Werk klaar"). Vult alleen lege velden van de concept-werkbon van die dag; een getekende werkbon blijft onaangeroerd.
@@ -798,6 +837,7 @@ try {
 
         // Betaaltermijnen. {"project":"PRJ-301","termijnen":[{"omschrijving":"Bij opdracht","percentage":30,"moment":"opdracht"},{"omschrijving":"Bij levering","percentage":60,"moment":"levering"},{"omschrijving":"Bij oplevering","percentage":10,"moment":"oplevering"}]}
         // moment: opdracht, levering, installatie, oplevering of handmatig. Een vast bedrag mag ook ("bedrag").
+        // "controleren": true = moment is al voorbij bij een lopend project; misschien al buiten de app gefactureerd. Daar maakt Claude geen voorstel voor; Ruben beslist.
         case 'termijnen':
             $pid = pid_of_fout((string)($d['project'] ?? ''));
             $r = termijnen_opslaan($pid, (array)($d['termijnen'] ?? []));
@@ -812,7 +852,9 @@ try {
             if (!empty($d['regie'])) $r = factuur_voorstel_regie($pid, 'Claude');
             else {
                 $tid = q('SELECT id FROM termijnen WHERE project_id = ? AND volgorde = ?', [$pid, (int)($d['termijn'] ?? 0)])->fetchColumn();
-                $r = $tid ? factuur_voorstel_termijn((int)$tid, 'Claude') : ['fout' => 'termijn niet gevonden'];
+                $r = !$tid ? ['fout' => 'termijn niet gevonden']
+                   : ((int)q('SELECT controleren FROM termijnen WHERE id = ?', [$tid])->fetchColumn() ? ['fout' => 'termijn staat op controleren (misschien al gefactureerd buiten de app); Ruben beslist']
+                   : factuur_voorstel_termijn((int)$tid, 'Claude'));
             }
             if (isset($r['fout'])) { uit($r); exit(1); }
             seintje_project($pid, 'Factuurvoorstel klaargezet door Claude', 'facturen.php?id=' . $r['factuur']);
@@ -824,7 +866,8 @@ try {
             $st = isset(FACTUUR_STATUS[$d['status'] ?? '']) ? $d['status'] : null;
             uit(['voorstellen' => q('SELECT f.id, pr.nummer, f.soort, f.omschrijving, f.status, f.boekhouding_nummer, f.concept_door, f.aangemaakt, (SELECT COALESCE(SUM(aantal * prijs), 0) FROM factuurregels r WHERE r.factuur_id = f.id) totaal_excl
                                          FROM facturen f JOIN projecten pr ON pr.id = f.project_id WHERE ' . ($st ? 'f.status = ?' : "f.status IN ('concept','akkoord','geboekt')") . ' ORDER BY f.id DESC LIMIT 100', $st ? [$st] : [])->fetchAll(),
-                 'klaar_om_te_factureren' => array_map(fn($t) => ['project' => $t['nummer'], 'termijn' => (int)$t['volgorde'], 'omschrijving' => $t['omschrijving'], 'moment' => $t['moment']], termijnen_te_factureren())]);
+                 'klaar_om_te_factureren' => array_values(array_map(fn($t) => ['project' => $t['nummer'], 'termijn' => (int)$t['volgorde'], 'omschrijving' => $t['omschrijving'], 'moment' => $t['moment']], array_filter(termijnen_te_factureren(), fn($t) => !$t['controleren']))),
+                 'eerst_controleren' => (int)q('SELECT COUNT(*) FROM termijnen WHERE controleren = 1')->fetchColumn()]);
             break;
 
         // Kleine standen lezen of zetten (watermerken, laatste run). {"sleutel":"licht_laatste"} leest; met "waarde" (tekst of JSON) zet. {} geeft alles.
