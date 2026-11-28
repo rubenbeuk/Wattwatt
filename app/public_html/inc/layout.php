@@ -11,7 +11,7 @@ function page_head(string $title, string $active = ''): void
     $hoofd['service'] = ['service.php', 'Service'];
     $hoofd['agenda'] = ['agenda.php', 'Agenda'];
     if (is_admin() || is_verkoop()) $hoofd['klanten'] = ['klanten.php', 'Klanten'];
-    if (is_admin()) $hoofd['overleg'] = ['overleg.php', 'Overleg'];
+    if (is_admin()) { $hoofd['overleg'] = ['overleg.php', 'Overleg']; $hoofd['facturen'] = ['facturen.php', 'Facturen']; }
     $hoofd['uren'] = ['uren.php', 'Uren'];
     $voorraad = ['scan' => ['index.php', 'Scan'], 'voorraad' => ['voorraad.php', 'Voorraad'], 'inkoop' => ['inkoop.php', 'Inkoop'], 'mutaties' => ['mutaties.php', 'Historie']];
     if (is_admin()) { $voorraad['import'] = ['import.php', 'Import']; $voorraad['labels'] = ['labels.php', 'Labels']; }
@@ -33,7 +33,7 @@ function page_head(string $title, string $active = ''): void
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon.svg">
 <title><?= e($title) ?> · <?= e(APP_NAME) ?></title>
-<link rel="stylesheet" href="assets/app.css?v=24">
+<link rel="stylesheet" href="assets/app.css?v=25">
 </head>
 <body>
 <?php if ($u): ?>

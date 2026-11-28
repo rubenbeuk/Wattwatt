@@ -5,7 +5,7 @@
 
 /** Kolom waarop een tabel zijn rijen vindt. */
 function cl_sleutel(string $tabel): string { return $tabel === 'opleveringen' ? 'project_id' : 'id'; }
-const CL_TABELLEN = ['taken', 'projecten', 'project_berichten', 'project_mijlpalen', 'afspraken', 'bespreekpunten', 'voorstellen', 'dagopdrachten', 'notities', 'opleveringen', 'taak_voorstellen'];
+const CL_TABELLEN = ['taken', 'projecten', 'project_berichten', 'project_mijlpalen', 'afspraken', 'bespreekpunten', 'voorstellen', 'dagopdrachten', 'notities', 'opleveringen', 'taak_voorstellen', 'locaties', 'installaties', 'werkbonnen', 'facturen'];
 /** Kolommen die vanzelf veranderen en niet meetellen bij "is het daarna gewijzigd". */
 const CL_NEGEER = ['bijgewerkt', 'aangemaakt'];
 
@@ -41,11 +41,14 @@ function cl_wat(string $opdracht, string $tabel, ?array $voor, ?array $na): stri
         'afspraken' => ($r['titel'] ?? '') . ' (' . substr((string)($r['start'] ?? ''), 0, 16) . ')',
         'bespreekpunten', 'voorstellen' => $r['titel'] ?? '', 'dagopdrachten' => 'instructie ' . ($r['datum'] ?? ''),
         'notities' => mb_substr((string)($r['tekst'] ?? ''), 0, 80), 'opleveringen' => 'opleverdossier',
-        'taak_voorstellen' => ($r['actie'] ?? '') . ': ' . ($r['reden'] ?? ''), default => '',
+        'taak_voorstellen' => ($r['actie'] ?? '') . ': ' . ($r['reden'] ?? ''),
+        'locaties' => trim(($r['naam'] ?? '') . ' ' . ($r['adres'] ?? '')), 'installaties' => trim(($r['merk'] ?? '') . ' ' . ($r['type'] ?? '') . ' ' . ($r['serienummer'] ?? '')),
+        'werkbonnen' => 'werkbon ' . ($r['datum'] ?? ''), 'facturen' => $r['omschrijving'] ?? '', default => '',
     };
     $soort = ['taken' => 'Taak', 'projecten' => ($r['soort'] ?? '') === 'service' ? 'Ticket' : 'Project', 'project_berichten' => 'Tijdlijn', 'project_mijlpalen' => 'Mijlpaal',
               'afspraken' => 'Afspraak', 'bespreekpunten' => 'Bespreekpunt', 'voorstellen' => 'Planningsvoorstel', 'dagopdrachten' => 'Instructie', 'notities' => 'Notitie',
-              'opleveringen' => 'Oplevering', 'taak_voorstellen' => 'Opschoonvoorstel'][$tabel] ?? $tabel;
+              'opleveringen' => 'Oplevering', 'taak_voorstellen' => 'Opschoonvoorstel',
+              'locaties' => 'Locatie', 'installaties' => 'Installatie', 'werkbonnen' => 'Werkbon', 'facturen' => 'Factuurvoorstel'][$tabel] ?? $tabel;
     if ($voor === null) $wat = 'nieuw';
     elseif ($na === null) $wat = 'verwijderd';
     else {

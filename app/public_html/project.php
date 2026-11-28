@@ -66,6 +66,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($tekst === '') flash('Schrijf eerst je vraag.', 'err');
         else { $u = user(); q("INSERT INTO notities (gebruiker_id, project_id, soort, tekst) VALUES (?,?,'vraag',?)", [$u['id'], $pr['id'], $tekst]); flash('Vraag verstuurd. Claude antwoordt bij de volgende ronde (elk uur op werkdagen); je krijgt een seintje.'); }
         redirect($terug . '#vraag');
+    } elseif ($actie === 'installatie_koppel' && is_admin()) {
+        $iid = (int)($_POST['installatie_id'] ?? 0) ?: null;
+        q('UPDATE projecten SET installatie_id = ? WHERE id = ?', [$iid, $pr['id']]);
+        flash($iid ? 'Ticket gekoppeld aan de installatie.' : 'Koppeling met installatie weggehaald.');
+        redirect($terug . '#installatie');
+    } elseif ($actie === 'begroting' && is_admin()) {
+        $regels = [];
+        foreach ((array)($_POST['b_oms'] ?? []) as $n => $oms) $regels[] = ['omschrijving' => $oms, 'soort' => $_POST['b_soort'][$n] ?? 'materiaal', 'aantal' => $_POST['b_aantal'][$n] ?? 1, 'eenheid' => $_POST['b_eenheid'][$n] ?? 'stuks', 'prijs' => $_POST['b_prijs'][$n] ?? 0];
+        $n = begroting_opslaan((int)$pr['id'], $regels, 'hand: ' . user()['naam'], true);
+        flash("Begroting opgeslagen ($n regels).");
+        redirect($terug . '#financieel');
+    } elseif ($actie === 'termijnen' && is_admin()) {
+        $t = [];
+        foreach ((array)($_POST['t_oms'] ?? []) as $n => $oms) $t[] = ['omschrijving' => $oms, 'percentage' => $_POST['t_pct'][$n] ?? null, 'bedrag' => $_POST['t_bedrag'][$n] ?? null, 'moment' => $_POST['t_moment'][$n] ?? 'handmatig'];
+        $r = termijnen_opslaan((int)$pr['id'], $t);
+        flash(isset($r['fout']) ? ucfirst($r['fout']) . '.' : "Termijnen opgeslagen ({$r['termijnen']}).", isset($r['fout']) ? 'err' : 'ok');
+        redirect($terug . '#financieel');
+    } elseif ($actie === 'factuur_termijn' && is_admin()) {
+        $r = factuur_voorstel_termijn((int)($_POST['termijn_id'] ?? 0), user()['naam']);
+        flash(isset($r['fout']) ? ucfirst($r['fout']) . '.' : 'Factuurvoorstel gemaakt: ' . fmt_eur($r['bedrag']) . ' excl. btw.', isset($r['fout']) ? 'err' : 'ok');
+        redirect(isset($r['factuur']) && !isset($r['fout']) ? 'facturen.php?id=' . $r['factuur'] : $terug . '#financieel');
+    } elseif ($actie === 'factuur_regie' && is_admin()) {
+        $r = factuur_voorstel_regie((int)$pr['id'], user()['naam']);
+        flash(isset($r['fout']) ? ucfirst($r['fout']) . '.' : 'Factuurvoorstel gemaakt met ' . $r['regels'] . ' regels.' . ($r['zonder_tarief'] ? ' Let op: er is nog geen uurtarief ingesteld (pagina Facturen).' : ''), isset($r['fout']) ? 'err' : 'ok');
+        redirect(isset($r['factuur']) ? 'facturen.php?id=' . $r['factuur'] : $terug . '#financieel');
     } elseif ($actie === 'materiaal_import' && is_admin()) {
         $regels = json_decode((string)($_POST['regels'] ?? ''), true);
         if (!is_array($regels) || !$regels) { flash('Geen regels gevonden in het bestand.', 'err'); redirect($terug); }
@@ -160,6 +185,21 @@ usort($feed, fn($a, $b) => strcmp($b['t'], $a['t']));
 const FEED_SOORT = ['mail' => 'Mail', 'whatsapp' => 'WhatsApp', 'teams' => 'Teams', 'pipedrive' => 'Pipedrive', 'telefoon' => 'Telefoon', 'claude' => 'Claude', 'app' => 'App',
     'notitie' => 'Notitie', 'melding' => 'Melding', 'taak' => 'Taak', 'bestelling' => 'Inkoop', 'foto' => "Foto's"];
 
+// Locatie, installaties en werkbonnen (ronde 2)
+if (!$pr['locatie_id']) { project_koppel_locatie((int)$pr['id']); $pr = q('SELECT * FROM projecten WHERE id = ?', [$pr['id']])->fetch(); }
+$locatie = $pr['locatie_id'] ? q('SELECT * FROM locaties WHERE id = ?', [$pr['locatie_id']])->fetch() : null;
+$installaties = installaties_van_project($pr);
+$ticketInstallatie = $pr['installatie_id'] ? q('SELECT * FROM installaties WHERE id = ?', [$pr['installatie_id']])->fetch() : null;
+$werkbonnen = q('SELECT w.id, w.datum, w.status, w.monteurs, w.klant_naam, w.concept_door FROM werkbonnen w WHERE w.project_id = ? ORDER BY w.datum DESC, w.id DESC', [$pr['id']])->fetchAll();
+$magWerkbon = !is_verkoop();
+if (is_admin()) {
+    $begroting = begroting_regels((int)$pr['id']);
+    $begrotingTotaal = begroting_totaal((int)$pr['id']);
+    $termijnen = termijnen_van((int)$pr['id']);
+    $facturen = q('SELECT f.*, (SELECT COALESCE(SUM(aantal * prijs), 0) FROM factuurregels r WHERE r.factuur_id = f.id) totaal FROM facturen f WHERE f.project_id = ? ORDER BY f.id DESC', [$pr['id']])->fetchAll();
+    $gefactureerd = array_sum(array_map(fn($f) => $f['status'] !== 'vervallen' ? (float)$f['totaal'] : 0, $facturen));
+}
+
 page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'service' : 'projecten');
 ?>
 <section class="card pkop">
@@ -211,6 +251,8 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
       <dt>Systeem</dt><dd><?= e($pr['systeem'] ?: '–') ?></dd>
       <dt>Klant</dt><dd><?= ($pr['klant_id'] ?? null) && (is_admin() || is_verkoop()) ? '<a href="klant.php?id=' . (int)$pr['klant_id'] . '">' . e($pr['klant'] ?: 'klantkaart') . '</a>' : e($pr['klant'] ?: '–') ?></dd>
       <dt>Adres</dt><dd><?= $pr['adres'] !== '' ? e($pr['adres']) . '<br><a href="' . e(route_url($pr['adres'])) . '" target="_blank" rel="noopener">Route</a>' : '<span class="warn-ink">ontbreekt</span>' ?></dd>
+      <?php if ($locatie && ($locatie['naam'] !== '' || (int)q('SELECT COUNT(*) FROM projecten WHERE locatie_id = ?', [$locatie['id']])->fetchColumn() > 1)): ?><dt>Locatie</dt><dd><?= e(locatie_tekst($locatie)) ?></dd><?php endif; ?>
+      <?php if ($service): ?><dt>Installatie</dt><dd><?= $ticketInstallatie ? '<a href="installatie.php?id=' . (int)$ticketInstallatie['id'] . '">' . e(installatie_naam($ticketInstallatie)) . '</a>' : '<a href="#installatie" data-tab-link="installatie">nog niet gekoppeld</a>' ?></dd><?php endif; ?>
       <dt>Contact</dt><dd><?= e($pr['contact'] ?: '–') ?></dd>
       <dt>Projectleider</dt><dd><?= e($leider ?: 'Ruben en Berend') ?></dd>
       <?php $urenTot = (float)(q('SELECT SUM(uren) s FROM uren WHERE project_id = ?', [$pr['id']])->fetch()['s'] ?? 0); if ($urenTot && is_admin()): ?><dt>Uren</dt><dd><?= str_replace('.', ',', (string)$urenTot) ?> uur geschreven</dd><?php endif; ?>
@@ -274,6 +316,9 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
     <?php endif; ?>
     <a href="#materiaal" data-tab="materiaal">Materiaal<?= $nogBestellen ? ' <span class="n oranje">' . $nogBestellen . '</span>' : '' ?></a>
     <a href="#boekingen" data-tab="boekingen">Boekingen</a>
+    <?php if (!is_onderaannemer()): ?><a href="#installatie" data-tab="installatie">Installatie <span class="n"><?= count($installaties) ?></span></a><?php endif; ?>
+    <a href="#werkbonnen" data-tab="werkbonnen">Werkbonnen <span class="n"><?= count($werkbonnen) ?></span></a>
+    <?php if (is_admin()): ?><a href="#financieel" data-tab="financieel">Financieel</a><?php endif; ?>
   </nav>
 
   <div class="ptab" data-tab="overzicht" id="overzicht">
@@ -504,6 +549,93 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
 <?php endif; ?>
 
   </div>
+  <?php if (!is_onderaannemer()): ?>
+  <div class="ptab" data-tab="installatie" id="installatie">
+    <section class="card">
+      <div class="row between wrap"><h2>Wat er staat<?= $locatie ? ' · ' . e(locatie_tekst($locatie)) : '' ?></h2>
+        <?php if (is_admin() || rol() === 'monteur'): ?><a class="btn small primary" href="installatie.php?nr=<?= e(rawurlencode($pr['nummer'])) ?>">Toevoegen</a><?php endif; ?></div>
+      <?php if (!$installaties): ?><p class="muted small">Nog niets in het register. Zet hier per apparaat merk, type, serienummer en monitoring; dan heeft de servicedesk het bij elke melding bij de hand.</p><?php endif; ?>
+      <div class="tablewrap"><table>
+        <?php if ($installaties): ?><thead><tr><th>Apparaat</th><th>Serienummer</th><th>Monitoring</th><th>Garantie tot</th></tr></thead><?php endif; ?>
+        <tbody><?php foreach ($installaties as $in): ?>
+          <tr class="<?= $in['status'] !== 'actief' ? 'muted' : '' ?>"><td><a href="installatie.php?id=<?= (int)$in['id'] ?>"><?= e(trim((INSTALLATIE_SOORTEN[$in['soort']] ?? '') . ' ' . $in['merk'] . ' ' . $in['type'])) ?></a><?= $in['vermogen'] !== '' ? ' <span class="small muted">' . e($in['vermogen']) . '</span>' : '' ?><?= $in['status'] !== 'actief' ? ' <span class="tag">' . e(INSTALLATIE_STATUS[$in['status']]) . '</span>' : '' ?></td>
+            <td><?= e($in['serienummer'] ?: '–') ?></td><td class="small"><?= e(trim($in['monitoring'] . ' ' . $in['monitoring_id']) ?: '–') ?></td>
+            <td class="<?= garantie_klasse($in['garantie_tot']) ?>"><?= $in['garantie_tot'] ? e(date('d-m-Y', strtotime($in['garantie_tot']))) : '–' ?></td></tr>
+        <?php endforeach; ?></tbody>
+      </table></div>
+      <?php if ($service && is_admin() && $installaties): ?>
+      <form method="post" class="row wrap mt"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="actie" value="installatie_koppel">
+        <label class="grow">Dit ticket gaat over <select name="installatie_id"><option value="">– nog niet bekend –</option><?php foreach ($installaties as $in): ?><option value="<?= (int)$in['id'] ?>" <?= (int)$pr['installatie_id'] === (int)$in['id'] ? 'selected' : '' ?>><?= e(installatie_naam($in)) ?></option><?php endforeach; ?></select></label>
+        <button class="btn small">Koppelen</button></form>
+      <?php endif; ?>
+    </section>
+  </div>
+  <?php endif; ?>
+  <div class="ptab" data-tab="werkbonnen" id="werkbonnen">
+    <section class="card">
+      <div class="row between wrap"><h2>Werkbonnen</h2>
+        <?php if ($magWerkbon): ?><a class="btn small primary" href="werkbon.php?nr=<?= e(rawurlencode($pr['nummer'])) ?>">Werkbon van vandaag</a><?php endif; ?></div>
+      <?php if (!$werkbonnen): ?><p class="muted small">Nog geen werkbonnen. Maak er aan het eind van elk bezoek een en laat de klant tekenen op het scherm.</p><?php endif; ?>
+      <ul class="plijst"><?php foreach ($werkbonnen as $w): ?>
+        <li><a href="werkbon.php?id=<?= (int)$w['id'] ?>"><b><?= e(datum_kort($w['datum'])) ?></b></a> <?= e($w['monteurs']) ?>
+          <?= $w['status'] === 'getekend' ? '<span class="tag ok">getekend door ' . e($w['klant_naam']) . '</span> <a class="small" href="werkbon.php?id=' . (int)$w['id'] . '&amp;pdf=1">PDF</a>' : '<span class="tag">' . ($w['concept_door'] !== '' ? 'concept van ' . e($w['concept_door']) : 'nog niet getekend') . '</span>' ?></li>
+      <?php endforeach; ?></ul>
+    </section>
+  </div>
+  <?php if (is_admin()): ?>
+  <div class="ptab" data-tab="financieel" id="financieel">
+    <section class="card">
+      <h2>Begroting en facturen</h2>
+      <div class="pcijfers">
+        <div><b><?= fmt_eur($begrotingTotaal) ?></b><span>begroot (excl. btw)</span></div>
+        <div><b><?= fmt_eur($gefactureerd) ?></b><span>gefactureerd of voorgesteld</span></div>
+        <div><b><?= fmt_eur($totaal) ?></b><span>materiaal geboekt (inkoop)</span></div>
+        <div><b><?= str_replace('.', ',', (string)(float)($urenTotaal = (float)q('SELECT COALESCE(SUM(uren), 0) FROM uren WHERE project_id = ?', [$pr['id']])->fetchColumn())) ?></b><span>uren geschreven</span></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="row between wrap"><h2>Factuurvoorstellen</h2>
+        <form method="post"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><button class="btn small" name="actie" value="factuur_regie" title="Uren en materiaal sinds het vorige voorstel">Voorstel uit uren en materiaal</button></form></div>
+      <?php if (!$facturen): ?><p class="muted small">Nog geen factuurvoorstellen.</p><?php endif; ?>
+      <ul class="plijst"><?php foreach ($facturen as $f): ?>
+        <li><a href="facturen.php?id=<?= (int)$f['id'] ?>"><b><?= fmt_eur($f['totaal']) ?></b> <?= e($f['omschrijving']) ?></a> <span class="tag"><?= e(FACTUUR_STATUS[$f['status']]) ?></span><?= $f['boekhouding_nummer'] !== '' ? ' <span class="small muted">' . e($f['boekhouding_nummer']) . '</span>' : '' ?></li>
+      <?php endforeach; ?></ul>
+    </section>
+    <section class="card">
+      <h2>Betaaltermijnen</h2>
+      <form method="post" class="stack"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="actie" value="termijnen">
+        <div class="tablewrap"><table class="invoer"><thead><tr><th>Omschrijving</th><th>%</th><th>of bedrag</th><th>Moment</th><th></th></tr></thead><tbody>
+        <?php foreach (array_merge($termijnen, [null, null]) as $t): $vast = $t && $t['fstatus']; ?>
+          <tr><td><input name="t_oms[]" value="<?= e($t['omschrijving'] ?? '') ?>" placeholder="bijv. Bij opdracht" <?= $vast ? 'readonly' : '' ?>></td>
+            <td><input name="t_pct[]" inputmode="decimal" value="<?= $t && $t['percentage'] !== null ? e(str_replace('.', ',', (string)(float)$t['percentage'])) : '' ?>" style="max-width:5rem" <?= $vast ? 'readonly' : '' ?>></td>
+            <td><input name="t_bedrag[]" inputmode="decimal" value="<?= $t && $t['bedrag'] !== null ? e(str_replace('.', ',', (string)(float)$t['bedrag'])) : '' ?>" style="max-width:8rem" <?= $vast ? 'readonly' : '' ?>></td>
+            <td><select name="t_moment[]"><?php foreach (TERMIJN_MOMENTEN as $k => $n): ?><option value="<?= $k ?>" <?= ($t['moment'] ?? 'handmatig') === $k ? 'selected' : '' ?>><?= e($n) ?></option><?php endforeach; ?></select></td>
+            <td class="small"><?php if ($t): ?><?= fmt_eur(termijn_bedrag($t, $begrotingTotaal)) ?>
+              <?= $vast ? '<span class="tag">' . e(FACTUUR_STATUS[$t['fstatus']]) . '</span>' : '<button class="btn small" form="ft' . (int)$t['id'] . '">Factuurvoorstel</button>' ?><?php endif; ?></td></tr>
+        <?php endforeach; ?>
+        </tbody></table></div>
+        <button class="btn small">Termijnen opslaan</button>
+      </form>
+      <?php foreach ($termijnen as $t): if ($t['fstatus']) continue; ?><form method="post" id="ft<?= (int)$t['id'] ?>"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="actie" value="factuur_termijn"><input type="hidden" name="termijn_id" value="<?= (int)$t['id'] ?>"></form><?php endforeach; ?>
+    </section>
+    <section class="card">
+      <details<?= $begroting ? '' : ' open' ?>><summary><b>Begroting (<?= count($begroting) ?> regels, <?= fmt_eur($begrotingTotaal) ?>)</b> <span class="small muted">uit de offerte; Claude vult hem bij een gewonnen deal</span></summary>
+      <form method="post" class="stack mt"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="actie" value="begroting">
+        <div class="tablewrap"><table class="invoer"><thead><tr><th>Soort</th><th>Omschrijving</th><th>Aantal</th><th>Eenheid</th><th>Prijs</th><th class="r">Totaal</th></tr></thead><tbody>
+        <?php foreach (array_merge($begroting, [null, null, null]) as $b): ?>
+          <tr><td><select name="b_soort[]"><?php foreach (['materiaal' => 'Materiaal', 'arbeid' => 'Arbeid', 'overig' => 'Overig'] as $k => $n): ?><option value="<?= $k ?>" <?= ($b['soort'] ?? '') === $k ? 'selected' : '' ?>><?= $n ?></option><?php endforeach; ?></select></td>
+            <td><input name="b_oms[]" value="<?= e($b['omschrijving'] ?? '') ?>"></td>
+            <td><input name="b_aantal[]" inputmode="decimal" value="<?= $b ? e(str_replace('.', ',', (string)(float)$b['aantal'])) : '' ?>" style="max-width:5rem"></td>
+            <td><input name="b_eenheid[]" value="<?= e($b['eenheid'] ?? 'stuks') ?>" style="max-width:6rem"></td>
+            <td><input name="b_prijs[]" inputmode="decimal" value="<?= $b ? e(str_replace('.', ',', (string)(float)$b['prijs'])) : '' ?>" style="max-width:8rem"></td>
+            <td class="r small"><?= $b ? fmt_eur((float)$b['aantal'] * (float)$b['prijs']) : '' ?></td></tr>
+        <?php endforeach; ?>
+        </tbody></table></div>
+        <button class="btn small">Begroting opslaan</button>
+      </form></details>
+    </section>
+  </div>
+  <?php endif; ?>
   <div class="ptab" data-tab="boekingen" id="boekingen">
 <section class="card">
   <div class="row between wrap">

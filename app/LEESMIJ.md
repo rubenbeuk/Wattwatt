@@ -109,3 +109,11 @@ Controleren zonder in te loggen (alleen lezen, op de droplet): `php /root/render
 - **Opleverdossier als concept**: `oplevering_concept` vult lege velden na "werk klaar"; de projectleider ziet een banner.
 - **Brein-stand** staat nu in de app (brein_stand `groot`), niet meer in het dashboard. Regels: `brein/instructie/app_regels.md`.
 - Na het live zetten: `php cli.php migreer` draaien (nieuwe tabellen en kolommen).
+
+## Ronde 2: van klus tot factuur (28-11-2026)
+- **Locaties**: een klant kan meerdere panden hebben. Elk project en ticket hangt aan een locatie (vanzelf op klant en adres). Beheer op de klantkaart.
+- **Installatieregister** (`installatie.php`, tab Installatie op project en ticket, klantkaart): per apparaat merk, type, serienummer, firmware, garantie en monitoring-ID. Een ticket kan aan een installatie hangen. Geen wachtwoorden.
+- **Werkbon** (`werkbon.php`, tab Werkbonnen, knop op Mijn dag): per bezoek, vooraf ingevuld uit planning, instructie, boekingen en uren; de klant tekent op het scherm. Daarna vast en als PDF te downloaden (eigen kleine PDF-schrijver in `inc/werk.php`, geen bibliotheek nodig).
+- **Uren uit de planning**: op Uren staat per dag wat volgens de planning gewerkt is (een dagdeel = 4 uur) met "Klopt" of "Alles overnemen". Kantoor keurt per persoon de week goed; daarna kan de monteur die regels niet meer weghalen.
+- **Begroting, termijnen en factuurvoorstellen** (tab Financieel, alleen kantoor; pagina `facturen.php`): begroting uit de offerte, betaaltermijnen met moment (opdracht, levering, installatie, oplevering), factuurvoorstel per termijn of uit uren en materiaal (service). Akkoord → download voor de boekhouding → factuurnummer invullen → betaald. De fase van het project gaat mee. Tarieven voor service staan onderaan Facturen.
+- **Brein**: nieuwe opdrachten `locatie`, `installatie`, `installaties`, `ticket_installatie`, `werkbon_concept`, `werkbonnen`, `begroting`, `termijnen`, `factuur_voorstel`, `facturen`. Regels in `brein/instructie/app_regels.md` punt 8.

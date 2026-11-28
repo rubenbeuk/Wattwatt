@@ -108,7 +108,7 @@ function rol(): string { return (string)(user()['rol'] ?? ''); }
 function is_verkoop(): bool { return rol() === 'verkoop'; }
 function is_onderaannemer(): bool { return rol() === 'onderaannemer'; }
 /** Onderaannemer: alleen deze pagina's. */
-const ONDERAANNEMER_PAGINAS = ['dag.php', 'uren.php', 'fotos.php', 'foto.php', 'project.php', 'oplevering.php', 'account.php', 'logout.php', 'seintjes.php', 'taak.php', 'tweestaps.php'];
+const ONDERAANNEMER_PAGINAS = ['dag.php', 'uren.php', 'fotos.php', 'foto.php', 'project.php', 'oplevering.php', 'account.php', 'logout.php', 'seintjes.php', 'taak.php', 'tweestaps.php', 'werkbon.php'];
 /** Mag een onderaannemer dit project zien? Alleen als hij er van 14 dagen terug tot 30 dagen vooruit op staat ingepland. */
 function onderaannemer_mag_project(int $pid, int $gid): bool
 {
@@ -223,5 +223,6 @@ const TYPES = [
 
 require __DIR__ . '/ops.php';
 require __DIR__ . '/claude.php';
+require __DIR__ . '/werk.php';
 require __DIR__ . '/totp.php';
 require __DIR__ . '/layout.php';
