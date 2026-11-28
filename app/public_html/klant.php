@@ -1,7 +1,7 @@
 <?php
 // Klantkaart: gegevens, installatie (wat er staat) en alle projecten, tickets en afspraken van deze klant.
 require __DIR__ . '/inc/bootstrap.php';
-$u = require_admin();
+$u = require_rol(['admin', 'verkoop']);
 $k = q('SELECT * FROM klanten WHERE id = ?', [(int)($_GET['id'] ?? $_POST['id'] ?? 0)])->fetch();
 if (!$k) { flash('Klant niet gevonden.', 'err'); redirect('klanten.php'); }
 

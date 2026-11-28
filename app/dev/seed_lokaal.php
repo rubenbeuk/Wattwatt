@@ -10,9 +10,13 @@ if (str_contains(strtolower((string)(getenv('VOORRAAD_DB') ?: $CFG['db']['name']
 }
 schema_migreren();
 $hash = password_hash('test1234', PASSWORD_DEFAULT);
-foreach ([['Ruben', 'ruben', 'admin', 0, 1], ['Berend', 'berend', 'admin', 0, 1], ['Julian', 'julian', 'admin', 1, 0], ['Boris', 'boris', 'monteur', 1, 0], ['Joey', 'joey', 'monteur', 1, 0]] as [$n, $g, $r, $pl, $b]) {
+foreach ([['Ruben', 'ruben', 'admin', 0, 1], ['Berend', 'berend', 'admin', 0, 1], ['Julian', 'julian', 'admin', 1, 0], ['Boris', 'boris', 'monteur', 1, 0], ['Joey', 'joey', 'monteur', 1, 0], ['Vera Verkoop', 'vera', 'verkoop', 0, 0], ['Turgay', 'turgay', 'onderaannemer', 1, 0]] as [$n, $g, $r, $pl, $b]) {
     q('INSERT INTO gebruikers (naam, gebruikersnaam, wachtwoord_hash, rol, planbaar, beslisser) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE wachtwoord_hash = VALUES(wachtwoord_hash)', [$n, $g, $hash, $r, $pl, $b]);
 }
 // Een project dat al in de app stond voor de overstap (om samenvoegen te testen)
 q("INSERT IGNORE INTO projecten (nummer, omschrijving, klant, adres, fase) VALUES ('PRJ-296', 'Oostendorp – 4x Hoymiles 261 kWh', 'Ron en Corno Oostendorp', 'Reijerscop 23, De Meern', 'materiaal')");
+// Tweede project, en Turgay (onderaannemer) alleen ingepland op PRJ-296
+q("INSERT IGNORE INTO projecten (nummer, omschrijving, klant, adres, fase) VALUES ('PRJ-300', 'Testproject zonder Turgay', 'Klant B', 'Dorpsstraat 1, Utrecht', 'gepland')");
+$t = q("SELECT id FROM gebruikers WHERE gebruikersnaam = 'turgay'")->fetchColumn(); $p = q("SELECT id FROM projecten WHERE nummer = 'PRJ-296'")->fetchColumn();
+q("INSERT IGNORE INTO planning (datum, dagdeel, gebruiker_id, project_id) VALUES (CURDATE(), 'ochtend', ?, ?)", [$t, $p]);
 echo "klaar\n";

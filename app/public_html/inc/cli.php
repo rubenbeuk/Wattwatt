@@ -15,7 +15,38 @@ $invoer = (in_array($opdracht, ['migreer', 'help', 'mensen'], true) || stream_is
 $d = $invoer !== '' ? json_decode($invoer, true) : [];
 if ($invoer !== '' && !is_array($d)) { uit(['fout' => 'ongeldige JSON']); exit(1); }
 
-function uit($x): void { echo json_encode($x, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_PRESERVE_ZERO_FRACTION), "\n"; }
+function uit($x): void { $GLOBALS['CL_UIT'] = $x; echo json_encode($x, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT | JSON_PRESERVE_ZERO_FRACTION), "\n"; }
+
+/**
+ * Logboek "Vandaag door Claude": welke rijen raakt een schrijfopdracht? Geeft [[tabel, id], ...].
+ * Vóór de opdracht zonder $uit (bestaande rijen), erna met $uit (ook nieuw gemaakte rijen).
+ */
+function cl_doelen(string $opdracht, array $d, $uit = null): array
+{
+    $id = fn(string $sql, array $p) => ($r = q($sql, $p)->fetchColumn()) !== false ? (int)$r : null;
+    $taak = fn($x) => is_int($x) || ctype_digit((string)$x) ? $id('SELECT id FROM taken WHERE id = ?', [(int)$x]) : (clean_text((string)$x) !== '' ? $id('SELECT id FROM taken WHERE extern_id = ?', [clean_text((string)$x)]) : null);
+    $prj = fn($nr) => clean_text((string)$nr) !== '' ? $id('SELECT id FROM projecten WHERE nummer = ?', [project_nummer((string)$nr)]) : null;
+    $u = is_array($uit) ? $uit : [];
+    $lijst = match ($opdracht) {
+        'taak' => [['taken', $taak($d['extern_id'] ?? '') ?? (!empty($d['id']) ? $taak((int)$d['id']) : null) ?? ($u['id'] ?? null)]],
+        'taak_klaar', 'taak_status', 'taak_vervalt' => [['taken', !empty($d['id']) ? $taak((int)$d['id']) : $taak((string)($d['extern_id'] ?? ''))]],
+        'taak_samenvoegen' => [['taken', $taak($d['dubbel'] ?? '')], ['taken', $taak($d['in'] ?? '')]],
+        'plan_voorstel' => [['voorstellen', $u['id'] ?? null]],
+        'dagopdracht' => [['dagopdrachten', ($p = $prj($d['project'] ?? '')) && geldige_datum($d['datum'] ?? null) ? $id('SELECT id FROM dagopdrachten WHERE datum = ? AND project_id = ?', [geldige_datum($d['datum']), $p]) : null]],
+        'notitie_verwerkt' => [['notities', (int)($d['id'] ?? 0) ?: null]],
+        'project_info', 'project_samenvatting' => [['projecten', $prj($d['project'] ?? '')]],
+        'project_bericht' => [['project_berichten', clean_text($d['extern_id'] ?? '') !== '' ? $id('SELECT id FROM project_berichten WHERE extern_id = ?', [clean_text($d['extern_id'])]) : ($u['id'] ?? null)]],
+        'mijlpaal' => [['project_mijlpalen', clean_text($d['extern_id'] ?? '') !== '' ? $id('SELECT id FROM project_mijlpalen WHERE extern_id = ?', [project_nummer((string)($d['project'] ?? '')) . ':' . clean_text($d['extern_id'])]) : null]],
+        'ticket' => [['projecten', (!empty($d['nummer']) ? $prj($d['nummer']) : null) ?? (!empty($d['ref']) ? $id('SELECT id FROM projecten WHERE extern_ref = ?', [clean_text($d['ref'])]) : null) ?? (!empty($u['nummer']) ? $prj($u['nummer']) : null)]],
+        'afspraak' => [['afspraken', (clean_text($d['extern_id'] ?? '') !== '' ? $id('SELECT id FROM afspraken WHERE extern_id = ?', [clean_text($d['extern_id'])]) : null) ?? (!empty($d['id']) ? (int)$d['id'] : null) ?? ($u['id'] ?? null)]],
+        'bespreekpunt' => [['bespreekpunten', (clean_text($d['extern_id'] ?? '') !== '' ? $id('SELECT id FROM bespreekpunten WHERE extern_id = ?', [clean_text($d['extern_id'])]) : null) ?? ($u['id'] ?? null)]],
+        'taak_opschoonvoorstel' => [['taak_voorstellen', $u['id'] ?? null]],
+        'oplevering_concept' => [['opleveringen', $prj($d['project'] ?? '')]],
+        'vraag_antwoord' => [['notities', (int)($d['id'] ?? 0) ?: null], ['project_berichten', $id('SELECT id FROM project_berichten WHERE extern_id = ?', ['vraag:' . (int)($d['id'] ?? 0)])]],
+        default => [],
+    };
+    return array_values(array_filter($lijst, fn($x) => $x[1]));
+}
 function pid_of_fout(string $nr): int
 {
     $r = q('SELECT id FROM projecten WHERE nummer = ?', [project_nummer($nr)])->fetch();
@@ -24,6 +55,9 @@ function pid_of_fout(string $nr): int
 }
 
 try {
+    // Stand vóór de opdracht, voor het logboek en Ongedaan
+    $clVoor = [];
+    foreach (cl_doelen($opdracht, $d) as [$t, $i]) $clVoor["$t:$i"] = cl_rij($t, $i);
     switch ($opdracht) {
         case 'migreer':
             uit(['ok' => true, 'wijzigingen' => schema_migreren()]);
@@ -93,7 +127,7 @@ try {
         // ================= Operatie: taken, planning, instructies =================
         // Wie er zijn. Gebruik de gebruikersnaam in de andere opdrachten.
         case 'mensen':
-            uit(q("SELECT naam, gebruikersnaam, IF(wachtwoord_hash = '', 'geen login', IF(rol = 'admin', 'kantoor', 'monteur')) AS rol, planbaar FROM gebruikers WHERE actief = 1 ORDER BY volgorde, naam")->fetchAll());
+            uit(q("SELECT naam, gebruikersnaam, IF(wachtwoord_hash = '', 'geen login', IF(rol = 'admin', 'kantoor', rol)) AS rol, planbaar FROM gebruikers WHERE actief = 1 ORDER BY volgorde, naam")->fetchAll());
             break;
 
         // Taak aanmaken of bijwerken (zelfde extern_id = zelfde taak; een afgeronde taak gaat nooit vanzelf weer open).
@@ -125,6 +159,12 @@ try {
                 if ($set) { $par[] = $best['id']; q('UPDATE taken SET ' . implode(', ', $set) . ' WHERE id = ?', $par); }
                 uit(['id' => (int)$best['id'], 'nieuw' => false, 'status' => $best['status']]);
             } else {
+                // Strengere regels (28-11-2026): een nieuwe taak heeft altijd een eigenaar, en eerst bijwerken dan nieuw maken
+                if (!$eig) { uit(['fout' => 'eigenaar ontbreekt: een taak zonder eigenaar bestaat niet. Kies ruben, berend of julian, of maak er een bespreekpunt van']); exit(1); }
+                if (empty($d['toch_nieuw'])) {
+                    $lijkt = taak_lijkt_op((string)($d['titel'] ?? ''), $pid, $eig);
+                    if ($lijkt) { uit(['fout' => 'lijkt op een open taak: werk die bij met {"id":..} of stuur "toch_nieuw":true als het echt een andere zaak is', 'bestaand' => $lijkt]); exit(1); }
+                }
                 $id = taak_maak(['titel' => $d['titel'] ?? '', 'toelichting' => $d['toelichting'] ?? '', 'project_id' => $pid, 'eigenaar_id' => $eig, 'datum' => $d['datum'] ?? null,
                     'deadline' => $d['deadline'] ?? null, 'prioriteit' => $d['prioriteit'] ?? 'normaal', 'volgorde' => $d['volgorde'] ?? 100, 'bron' => $d['bron'] ?? 'Claude', 'extern_id' => $ext, 'van_id' => ($d['van'] ?? '') !== '' ? gebruiker_zoek((string)$d['van']) : null], null, 'Claude');
                 uit(['id' => $id, 'nieuw' => true, 'status' => 'open']);
@@ -268,7 +308,7 @@ try {
         // Notities die mensen in de app achterlieten. {"status":"nieuw"} (standaard) of {"sinds":"2026-11-16"} voor alles sinds die dag.
         case 'notities':
             if (!empty($d['sinds'])) { $w = 'n.aangemaakt >= ?'; $par = [geldige_datum($d['sinds']) ?? '2000-01-01']; } else { $w = "n.status = 'nieuw'"; $par = []; }
-            uit(q("SELECT n.id, g.gebruikersnaam AS van, g.beslisser, IF(g.rol = 'admin', 'kantoor', 'monteur') AS rol, pr.nummer AS project, n.tekst, n.status, n.verwerking, n.aangemaakt
+            uit(q("SELECT n.id, n.soort, g.gebruikersnaam AS van, g.beslisser, IF(g.rol = 'admin', 'kantoor', g.rol) AS rol, pr.nummer AS project, n.tekst, n.status, n.verwerking, n.aangemaakt
                    FROM notities n JOIN gebruikers g ON g.id = n.gebruiker_id LEFT JOIN projecten pr ON pr.id = n.project_id WHERE $w ORDER BY n.id", $par)->fetchAll());
             break;
 
@@ -342,7 +382,7 @@ try {
                ON DUPLICATE KEY UPDATE project_id = VALUES(project_id), datum = VALUES(datum), bron = VALUES(bron), van = VALUES(van), onderwerp = VALUES(onderwerp), tekst = VALUES(tekst), link = VALUES(link)',
                 [$pid, $dt, $bron, mb_substr(clean_text($d['van'] ?? ''), 0, 150), mb_substr(clean_text($d['onderwerp'] ?? ''), 0, 255),
                  trim((string)($d['tekst'] ?? '')) ?: null, mb_substr((string)($d['link'] ?? ''), 0, 500), $ext]);
-            uit(['ok' => true, 'project' => project_nummer((string)$d['project']), 'extern_id' => $ext]);
+            uit(['ok' => true, 'id' => (int)($ext ? q('SELECT id FROM project_berichten WHERE extern_id = ?', [$ext])->fetchColumn() : db()->lastInsertId()), 'project' => project_nummer((string)$d['project']), 'extern_id' => $ext]);
             break;
 
         // Mijlpaal bij een project (levering, keuring, oplevering ...). Zelfde extern_id = bijwerken, dus een verschoven datum overschrijft de oude.
@@ -528,6 +568,101 @@ try {
                 'nog_in_te_delen' => (int)q("SELECT COUNT(*) FROM wa_chats WHERE soort = 'nieuw'")->fetchColumn(), 'tekst' => $tekst]);
             break;
 
+        // Voorstel om een taak op te schonen (opschonen.php; kantoor keurt goed of af). Verandert zelf niets aan de taak.
+        // {"taak":12,"actie":"klaar|vervalt|samenvoegen|eigenaar|deadline|project","reden":"..","eigenaar":"julian","in":29,"deadline":"2026-12-05","project":"PRJ-296"}
+        case 'taak_opschoonvoorstel':
+            $t = ctype_digit((string)($d['taak'] ?? '')) ? q('SELECT * FROM taken WHERE id = ?', [(int)$d['taak']])->fetch() : q('SELECT * FROM taken WHERE extern_id = ?', [clean_text((string)($d['taak'] ?? ''))])->fetch();
+            if (!$t || $t['status'] === 'klaar') { uit(['fout' => 'taak niet gevonden of al klaar']); exit(1); }
+            $actie = (string)($d['actie'] ?? '');
+            if (!in_array($actie, ['klaar', 'vervalt', 'samenvoegen', 'eigenaar', 'deadline', 'project'], true)) { uit(['fout' => 'onbekende actie']); exit(1); }
+            $reden = mb_substr(clean_text($d['reden'] ?? ''), 0, 500);
+            if ($reden === '') { uit(['fout' => 'reden ontbreekt']); exit(1); }
+            $eigV = $actie === 'eigenaar' ? gebruiker_zoek((string)($d['eigenaar'] ?? '')) : null;
+            $inV = $actie === 'samenvoegen' ? (int)(q('SELECT id FROM taken WHERE id = ? AND status <> \'klaar\'', [(int)($d['in'] ?? 0)])->fetchColumn() ?: 0) : 0;
+            $dlV = $actie === 'deadline' ? geldige_datum($d['deadline'] ?? null) : null;
+            $prV = $actie === 'project' && ($d['project'] ?? '') !== '' ? (q('SELECT id FROM projecten WHERE nummer = ?', [project_nummer((string)$d['project'])])->fetchColumn() ?: null) : null;
+            if (($actie === 'eigenaar' && !$eigV) || ($actie === 'samenvoegen' && (!$inV || $inV === (int)$t['id'])) || ($actie === 'deadline' && !$dlV) || ($actie === 'project' && !$prV)) { uit(['fout' => 'gegevens voor deze actie ontbreken of kloppen niet']); exit(1); }
+            // Eén open voorstel per taak: een nieuw voorstel vervangt het oude
+            q("DELETE FROM taak_voorstellen WHERE taak_id = ? AND status = 'open'", [$t['id']]);
+            q('INSERT INTO taak_voorstellen (taak_id, actie, eigenaar_id, in_taak_id, deadline, project_id, reden) VALUES (?,?,?,?,?,?,?)', [$t['id'], $actie, $eigV, $inV ?: null, $dlV, $prV, $reden]);
+            uit(['id' => (int)db()->lastInsertId(), 'taak' => (int)$t['id'], 'actie' => $actie, 'status' => 'open']);
+            break;
+
+        // Stand van de opschoonvoorstellen. {} = open; {"sinds":"2026-11-28"} ook wat sindsdien besloten is
+        case 'taak_opschoonvoorstellen':
+            $sinds = geldige_datum($d['sinds'] ?? '');
+            uit(q("SELECT v.id, v.taak_id, t.titel, v.actie, v.reden, v.status, g.naam AS besloten_door, v.besloten_op FROM taak_voorstellen v JOIN taken t ON t.id = v.taak_id LEFT JOIN gebruikers g ON g.id = v.besloten_door
+                   WHERE v.status = 'open'" . ($sinds ? ' OR v.besloten_op >= ?' : '') . ' ORDER BY v.id', $sinds ? [$sinds] : [])->fetchAll());
+            break;
+
+        // Opleverdossier als concept na "Werk klaar": vult alleen lege velden; de monteur controleert en vinkt zelf af.
+        // {"project":"PRJ-296","serienummers":"..","netwerk":"..","ems":"..","kabel":"..","materiaal":"..","opmerkingen":".."}
+        case 'oplevering_concept':
+            $pid = pid_of_fout((string)($d['project'] ?? ''));
+            $o = q('SELECT * FROM opleveringen WHERE project_id = ?', [$pid])->fetch();
+            if ($o && $o['afgerond_op']) { uit(['fout' => 'opleverdossier is al afgerond']); exit(1); }
+            if (!$o) { q('INSERT INTO opleveringen (project_id) VALUES (?)', [$pid]); $o = q('SELECT * FROM opleveringen WHERE project_id = ?', [$pid])->fetch(); }
+            $gevuld = [];
+            foreach (['serienummers' => 10000, 'netwerk' => 10000, 'ems' => 255, 'kabel' => 10000, 'materiaal' => 10000, 'opmerkingen' => 10000] as $k => $max) {
+                $v = trim((string)($d[$k] ?? ''));
+                if ($v !== '' && trim((string)($o[$k] ?? '')) === '') { q("UPDATE opleveringen SET `$k` = ? WHERE project_id = ?", [mb_substr($v, 0, $max), $pid]); $gevuld[] = $k; }
+            }
+            if ($gevuld) {
+                q("UPDATE opleveringen SET concept_door = 'Claude', bijgewerkt_door = 'Claude' WHERE project_id = ?", [$pid]);
+                $pr = q('SELECT nummer, omschrijving, leider_id FROM projecten WHERE id = ?', [$pid])->fetch();
+                seintje_project($pid, 'Opleverdossier klaargezet door Claude, graag controleren: ' . mb_substr(project_naam($pr), 0, 120), 'oplevering.php?nr=' . rawurlencode($pr['nummer']));
+            }
+            uit(['ok' => true, 'gevuld' => $gevuld]);
+            break;
+
+        // Vraag aan Claude vanuit de app beantwoorden: komt op de tijdlijn van het project en de vrager krijgt een seintje.
+        // {"id":7,"antwoord":"..."}  (id van de notitie met soort "vraag")
+        case 'vraag_antwoord':
+            $n = q("SELECT n.*, pr.nummer FROM notities n LEFT JOIN projecten pr ON pr.id = n.project_id WHERE n.id = ? AND n.soort = 'vraag'", [(int)($d['id'] ?? 0)])->fetch();
+            $antw = trim((string)($d['antwoord'] ?? ''));
+            if (!$n) { uit(['fout' => 'vraag niet gevonden']); exit(1); }
+            if ($antw === '') { uit(['fout' => 'antwoord ontbreekt']); exit(1); }
+            $vrager = q('SELECT naam FROM gebruikers WHERE id = ?', [$n['gebruiker_id']])->fetchColumn();
+            if ($n['project_id']) q("INSERT INTO project_berichten (project_id, datum, bron, van, onderwerp, tekst, extern_id) VALUES (?, ?, 'claude', 'Claude', ?, ?, ?)
+                                     ON DUPLICATE KEY UPDATE tekst = VALUES(tekst)", [$n['project_id'], date('Y-m-d H:i:s'), mb_substr('Antwoord aan ' . $vrager . ': ' . clean_text($n['tekst']), 0, 255), $antw, 'vraag:' . $n['id']]);
+            q("UPDATE notities SET status = 'verwerkt', verwerking = ?, verwerkt_op = UTC_TIMESTAMP() WHERE id = ?", [mb_substr($antw, 0, 4000), $n['id']]);
+            seintje((int)$n['gebruiker_id'], 'Claude antwoordde op je vraag' . ($n['nummer'] ? ' over ' . $n['nummer'] : '') . ': ' . mb_substr(clean_text($antw), 0, 200), $n['nummer'] ? 'project.php?nr=' . rawurlencode($n['nummer']) . '#tijdlijn' : 'dag.php');
+            uit(['id' => (int)$n['id'], 'status' => 'verwerkt']);
+            break;
+
+        // Tweede inlogstap uitzetten voor iemand die zijn telefoon kwijt is. Alleen via SSH (beheer), niet via api_brein.php.
+        // {"gebruiker":"ruben"}
+        case 'tweestaps_uit':
+            $g = gebruiker_zoek((string)($d['gebruiker'] ?? ''));
+            if (!$g) { uit(['fout' => 'gebruiker onbekend']); exit(1); }
+            q('UPDATE gebruikers SET totp_geheim = NULL, totp_sinds = NULL WHERE id = ?', [$g]);
+            uit(['ok' => true, 'gebruiker' => (string)$d['gebruiker'], 'melding' => 'Bij de volgende keer inloggen stelt deze persoon de code-app opnieuw in.']);
+            break;
+
+        // --- Stand van het brein ---
+        // Een lijst in de stand aanvullen zonder de rest te overschrijven (bijv. verwerkte mail-id's). Houdt de laatste "max" (standaard 200).
+        // {"sleutel":"groot","lijst":"mail_opdrachten_verwerkt","ids":["<id>", ...],"max":200}
+        case 'brein_lijst':
+            $k = mb_substr((string)($d['sleutel'] ?? ''), 0, 100); $lijst = (string)($d['lijst'] ?? '');
+            if ($k === '' || $lijst === '' || $k === 'slot') { uit(['fout' => 'sleutel of lijst ontbreekt']); exit(1); }
+            $pdo = db(); $pdo->beginTransaction();
+            $r = q('SELECT waarde FROM brein_stand WHERE sleutel = ? FOR UPDATE', [$k])->fetch();
+            $w = $r ? (json_decode($r['waarde'], true) ?: []) : [];
+            if (!is_array($w)) $w = [];
+            $oud = (array)($w[$lijst] ?? []);
+            $nieuw = array_values(array_unique(array_merge($oud, array_map('strval', (array)($d['ids'] ?? [])))));
+            $w[$lijst] = array_slice($nieuw, -max(1, min(2000, (int)($d['max'] ?? 200))));
+            q('INSERT INTO brein_stand (sleutel, waarde) VALUES (?, ?) ON DUPLICATE KEY UPDATE waarde = VALUES(waarde)', [$k, json_encode($w, JSON_UNESCAPED_UNICODE)]);
+            $pdo->commit();
+            uit(['sleutel' => $k, 'lijst' => $lijst, 'aantal' => count($w[$lijst])]);
+            break;
+
+        // Logboek van Claude lezen (wat de runs veranderden en wat kantoor ongedaan maakte). {"sinds":"2026-11-28"}
+        case 'claude_log':
+            uit(q('SELECT l.id, l.aangemaakt, l.run, l.opdracht, l.wat, l.ongedaan_op, g.naam AS ongedaan_door FROM claude_log l LEFT JOIN gebruikers g ON g.id = l.ongedaan_door WHERE l.aangemaakt >= ? ORDER BY l.id LIMIT 1000',
+                [geldige_datum($d['sinds'] ?? '') ?? date('Y-m-d', time() - 86400)])->fetchAll());
+            break;
+
         // --- Stand van het brein ---
         // Slot: {"wie":"cloud-licht","minuten":50} neemt het slot als het vrij of verlopen is. Antwoord {"ok":true} of {"ok":false,"bezet_door":..,"tot":..}.
         case 'brein_slot':
@@ -560,15 +695,22 @@ try {
             $k = mb_substr((string)$d['sleutel'], 0, 100);
             if (array_key_exists('waarde', $d)) {
                 $w = is_string($d['waarde']) ? $d['waarde'] : json_encode($d['waarde'], JSON_UNESCAPED_UNICODE);
-                q('INSERT INTO brein_stand (sleutel, waarde) VALUES (?, ?) ON DUPLICATE KEY UPDATE waarde = VALUES(waarde)', [$k, mb_substr($w, 0, 60000)]);
+                if (strlen($w) > 4000000) { uit(['fout' => 'waarde te groot (meer dan 4 MB)']); exit(1); }
+                q('INSERT INTO brein_stand (sleutel, waarde) VALUES (?, ?) ON DUPLICATE KEY UPDATE waarde = VALUES(waarde)', [$k, $w]);
             }
             $r = q('SELECT waarde, bijgewerkt FROM brein_stand WHERE sleutel = ?', [$k])->fetch();
             uit(['sleutel' => $k, 'waarde' => $r ? (json_decode($r['waarde'], true) ?? $r['waarde']) : null, 'bijgewerkt' => $r['bijgewerkt'] ?? null]);
             break;
 
         default:
+            $clVoor = null;
             uit(['opdrachten' => ['migreer', 'materiaallijst', 'bestelling', 'geleverd', 'factuur', 'project', 'bestellijst', 'bestellingen', 'zoek', 'product',
-                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'whatsapp_in', 'whatsapp_chats', 'whatsapp_indelen', 'whatsapp', 'brein_slot', 'brein_slot_vrij', 'brein_stand']]);
+                'mensen', 'mens', 'taak', 'taken', 'taak_klaar', 'dagstatus', 'planning', 'plan_voorstel', 'voorstellen', 'plan_zet', 'dagopdracht', 'instructies', 'notities', 'notitie_verwerkt', 'project_info', 'ticket', 'tickets', 'pipedrive_import', 'afspraak', 'afspraken', 'klant', 'oplevering', 'bespreekpunt', 'bespreekpunten', 'whatsapp_in', 'whatsapp_chats', 'whatsapp_indelen', 'whatsapp', 'brein_slot', 'brein_slot_vrij', 'brein_stand', 'brein_lijst', 'taak_opschoonvoorstel', 'taak_opschoonvoorstellen', 'oplevering_concept', 'vraag_antwoord', 'claude_log', 'tweestaps_uit']]);
+    }
+    if (is_array($clVoor)) {
+        $clNa = array_keys($clVoor);
+        foreach (cl_doelen($opdracht, $d, $GLOBALS['CL_UIT'] ?? null) as [$t, $i]) $clNa[] = "$t:$i";
+        foreach (array_unique($clNa) as $k) { [$t, $i] = explode(':', $k); cl_vast($opdracht, $t, (int)$i, $clVoor[$k] ?? null); }
     }
 } catch (Throwable $e) {
     if (db()->inTransaction()) db()->rollBack();

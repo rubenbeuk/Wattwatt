@@ -386,6 +386,40 @@ function schema_migreren(): array
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 ,
 // --- Stand van het brein (26-11-2026): slot tegen twee runs tegelijk (Mac en cloud) en kleine standen zoals watermerken ---
+"CREATE TABLE IF NOT EXISTS claude_log (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  run VARCHAR(50) NOT NULL DEFAULT '',
+  opdracht VARCHAR(50) NOT NULL,
+  tabel VARCHAR(40) NOT NULL,
+  rij_id INT UNSIGNED NOT NULL,
+  project_id INT UNSIGNED NULL,
+  wat VARCHAR(500) NOT NULL DEFAULT '',
+  voor LONGTEXT NULL,
+  na LONGTEXT NULL,
+  ongedaan_op DATETIME NULL,
+  ongedaan_door INT UNSIGNED NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (aangemaakt), INDEX (tabel, rij_id), INDEX (project_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
+// --- Opschonen van de takenlijst (28-11-2026): voorstellen van Claude per taak, kantoor keurt goed of af ---
+"CREATE TABLE IF NOT EXISTS taak_voorstellen (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  taak_id INT UNSIGNED NOT NULL,
+  actie ENUM('klaar','vervalt','samenvoegen','eigenaar','deadline','project') NOT NULL,
+  eigenaar_id INT UNSIGNED NULL,
+  in_taak_id INT UNSIGNED NULL,
+  deadline DATE NULL,
+  project_id INT UNSIGNED NULL,
+  reden VARCHAR(500) NOT NULL DEFAULT '',
+  status ENUM('open','akkoord','afgewezen') NOT NULL DEFAULT 'open',
+  besloten_door INT UNSIGNED NULL,
+  besloten_op DATETIME NULL,
+  aangemaakt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX (status), INDEX (taak_id),
+  CONSTRAINT fk_tv_taak FOREIGN KEY (taak_id) REFERENCES taken(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+,
 "CREATE TABLE IF NOT EXISTS brein_stand (
   sleutel VARCHAR(100) NOT NULL PRIMARY KEY,
   waarde TEXT NOT NULL,
@@ -430,6 +464,13 @@ function schema_migreren(): array
         ['projecten', 'pipedrive_deal_id', "INT UNSIGNED NULL AFTER pipedrive_id"],
         ['gebruikers', 'agenda_token', "VARCHAR(48) NULL AFTER beslisser"],
         ['projecten', 'klant_id', "INT UNSIGNED NULL AFTER klant"],
+        // Tweede inlogstap voor kantoor (28-11-2026): geheim voor de code-app op de telefoon
+        ['gebruikers', 'totp_geheim', "VARCHAR(64) NULL AFTER agenda_token"],
+        ['gebruikers', 'totp_sinds', "DATETIME NULL AFTER totp_geheim"],
+        // "Vraag Claude" op project en ticket (28-11-2026)
+        ['notities', 'soort', "VARCHAR(10) NOT NULL DEFAULT 'notitie' AFTER project_id"],
+        // Opleverdossier als concept van Claude na "Werk klaar" (28-11-2026)
+        ['opleveringen', 'concept_door', "VARCHAR(100) NOT NULL DEFAULT '' AFTER opmerkingen"],
     ];
     foreach ($kolommen as [$tabel, $kolom, $def]) {
         $bestaat = q("SELECT COUNT(*) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [$tabel, $kolom])->fetch()['c'];
@@ -438,6 +479,15 @@ function schema_migreren(): array
             // Ruben en Berend beslissen: wat zij invullen of goedkeuren is direct goed (Ruben, 16-11-2026)
             if ($kolom === 'beslisser') { $pdo->exec("UPDATE gebruikers SET beslisser = 1 WHERE gebruikersnaam IN ('ruben', 'berend')"); $log[] = 'ruben en berend zijn beslisser'; }
         }
+    }
+    // Stand van het brein mag groter worden (28-11-2026): de grote run bewaart hier ook zijn items en lijsten in plaats van in het dashboard
+    if (q("SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'brein_stand' AND COLUMN_NAME = 'waarde'")->fetchColumn() === 'text') {
+        $pdo->exec('ALTER TABLE brein_stand MODIFY waarde MEDIUMTEXT NOT NULL'); $log[] = 'brein_stand.waarde vergroot';
+    }
+    // Rollen verkoop en onderaannemer (28-11-2026)
+    $rolType = q("SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'gebruikers' AND COLUMN_NAME = 'rol'")->fetchColumn();
+    if ($rolType && !str_contains((string)$rolType, 'onderaannemer')) {
+        $pdo->exec("ALTER TABLE gebruikers MODIFY rol ENUM('admin','monteur','verkoop','onderaannemer') NOT NULL DEFAULT 'monteur'"); $log[] = 'rollen verkoop en onderaannemer toegevoegd';
     }
     $idx = q("SELECT COUNT(*) c FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'producten' AND INDEX_NAME = 'idx_levcode'")->fetch()['c'];
     if (!$idx) { $pdo->exec("ALTER TABLE producten ADD INDEX idx_levcode (leverancier_code)"); }

@@ -604,3 +604,13 @@ main:has(.playout) { max-width: 1320px; }
 .sbord { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .pkaart.spoed { border-left: 4px solid #b42318; }
 .tag.rood { background: #fde8e6; color: #b42318; }
+
+/* Door Claude en opschonen (28-11-2026) */
+.claudelog { list-style: none; margin: 0; padding: 0; }
+.claudelog li { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; padding: .45rem 0; border-bottom: 1px solid var(--line); }
+.claudelog li:last-child { border-bottom: 0; }
+.claudelog li > a, .claudelog li > span:nth-child(2) { flex: 1 1 260px; }
+.opschoon td { vertical-align: top; }
+.opschoon .voorstel { background: var(--ok); border-radius: 6px; padding: .35rem .5rem; margin-top: .3rem; }
+.codeveld { font-size: 1.6rem; letter-spacing: .3em; text-align: center; max-width: 12ch; }
+.qrvak { display: inline-block; padding: 12px; background: #fff; border-radius: 8px; }

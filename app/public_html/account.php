@@ -16,7 +16,7 @@ page_head('Account', 'account');
 ?>
 <section class="card narrow">
   <h1><?= e($u['naam']) ?></h1>
-  <p class="muted"><?= e($u['gebruikersnaam']) ?> · <?= $u['rol'] === 'admin' ? 'Beheerder' : 'Monteur' ?></p>
+  <p class="muted"><?= e($u['gebruikersnaam']) ?> · <?= e(ROLLEN[$u['rol']] ?? $u['rol']) ?></p>
   <h2>Wachtwoord wijzigen</h2>
   <form method="post" class="stack">
     <?= csrf_field() ?>
@@ -24,6 +24,8 @@ page_head('Account', 'account');
     <label>Nieuw wachtwoord <input name="nieuw" type="password" minlength="8" autocomplete="new-password" required></label>
     <button class="btn primary">Wijzigen</button>
   </form>
+  <h2>Inloggen met een code</h2>
+  <p><?= q('SELECT totp_geheim FROM gebruikers WHERE id = ?', [$u['id']])->fetchColumn() ? 'De code-app staat aan.' : 'De code-app staat nog uit.' ?> <a href="tweestaps.php">Instellen of wijzigen</a></p>
   <form method="post" action="logout.php" class="mt"><?= csrf_field() ?><button class="btn ghost">Uitloggen</button></form>
   <p class="muted small mt">Tip: zet deze app op je beginscherm (Safari: Deel → Zet op beginscherm), dan opent hij als een gewone app.</p>
 </section>

@@ -102,6 +102,26 @@ function csrf_check(): void
 
 function user(): ?array { return $_SESSION['user'] ?? null; }
 function is_admin(): bool { return (user()['rol'] ?? '') === 'admin'; }
+/** Rollen (28-11-2026): admin = kantoor, monteur, verkoop (klanten en projecten, geen inkoopprijzen), onderaannemer (alleen eigen dag). */
+const ROLLEN = ['admin' => 'Kantoor', 'monteur' => 'Monteur', 'verkoop' => 'Verkoop', 'onderaannemer' => 'Onderaannemer'];
+function rol(): string { return (string)(user()['rol'] ?? ''); }
+function is_verkoop(): bool { return rol() === 'verkoop'; }
+function is_onderaannemer(): bool { return rol() === 'onderaannemer'; }
+/** Onderaannemer: alleen deze pagina's. */
+const ONDERAANNEMER_PAGINAS = ['dag.php', 'uren.php', 'fotos.php', 'foto.php', 'project.php', 'oplevering.php', 'account.php', 'logout.php', 'seintjes.php', 'taak.php', 'tweestaps.php'];
+/** Mag een onderaannemer dit project zien? Alleen als hij er van 14 dagen terug tot 30 dagen vooruit op staat ingepland. */
+function onderaannemer_mag_project(int $pid, int $gid): bool
+{
+    return (bool)q('SELECT 1 FROM planning WHERE project_id = ? AND gebruiker_id = ? AND datum BETWEEN CURDATE() - INTERVAL 14 DAY AND CURDATE() + INTERVAL 30 DAY LIMIT 1', [$pid, $gid])->fetch();
+}
+function require_rol(array $rollen): array
+{
+    $u = require_login();
+    if (!in_array($u['rol'], $rollen, true)) { http_response_code(403); exit('Deze pagina is niet voor jouw rol.'); }
+    return $u;
+}
+/** Tweede inlogstap (code-app op de telefoon) verplicht voor kantoor, tenzij 'tweestaps' => false in de config. */
+function tweestaps_verplicht(array $u): bool { global $CFG; return $u['rol'] === 'admin' && ($CFG['tweestaps'] ?? true) !== false; }
 /** Ruben en Berend: wat zij invullen of goedkeuren is direct goed. */
 function is_beslisser(): bool { return (int)(user()['beslisser'] ?? 0) === 1; }
 
@@ -113,9 +133,24 @@ function require_login(): array
         redirect('login.php');
     }
     // Gedeactiveerde gebruiker direct eruit
-    $row = q('SELECT id, naam, gebruikersnaam, rol, actief, beslisser FROM gebruikers WHERE id = ?', [$u['id']])->fetch();
+    $row = q('SELECT id, naam, gebruikersnaam, rol, actief, beslisser, totp_geheim FROM gebruikers WHERE id = ?', [$u['id']])->fetch();
     if (!$row || !$row['actief']) { session_destroy(); redirect('login.php'); }
     $_SESSION['user'] = ['id' => (int)$row['id'], 'naam' => $row['naam'], 'gebruikersnaam' => $row['gebruikersnaam'], 'rol' => $row['rol'], 'beslisser' => (int)$row['beslisser']];
+    $pagina = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+    // Kantoor zonder ingestelde code-app: eerst instellen (behalve uitloggen)
+    if (tweestaps_verplicht($_SESSION['user']) && !$row['totp_geheim'] && !in_array($pagina, ['tweestaps.php', 'logout.php'], true)) redirect('tweestaps.php');
+    if ($row['rol'] === 'onderaannemer') {
+        if (!in_array($pagina, ONDERAANNEMER_PAGINAS, true)) redirect('dag.php');
+        // Projectpagina's alleen voor projecten waar hij is ingepland
+        if (in_array($pagina, ['project.php', 'fotos.php', 'oplevering.php'], true)) {
+            $pid = q('SELECT id FROM projecten WHERE nummer = ?', [project_nummer($_GET['nr'] ?? $_POST['nr'] ?? '')])->fetchColumn();
+            if (!$pid || !onderaannemer_mag_project((int)$pid, (int)$row['id'])) { http_response_code(403); exit('Je ziet alleen projecten waar je bent ingepland.'); }
+        }
+        if ($pagina === 'foto.php') {
+            $pid = q('SELECT project_id FROM fotos WHERE id = ?', [(int)($_GET['id'] ?? 0)])->fetchColumn();
+            if (!$pid || !onderaannemer_mag_project((int)$pid, (int)$row['id'])) { http_response_code(403); exit('Niet beschikbaar.'); }
+        }
+    }
     return $_SESSION['user'];
 }
 function require_admin(): array
@@ -187,4 +222,6 @@ const TYPES = [
 ];
 
 require __DIR__ . '/ops.php';
+require __DIR__ . '/claude.php';
+require __DIR__ . '/totp.php';
 require __DIR__ . '/layout.php';

@@ -27,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $open = q("SELECT b.*, p.nummer FROM bespreekpunten b LEFT JOIN projecten p ON p.id = b.project_id WHERE b.status = 'open' ORDER BY FIELD(b.prioriteit, 'hoog', 'normaal', 'laag'), b.id")->fetchAll();
+$langLaat = taken_lang_te_laat();
 $recent = q("SELECT b.*, p.nummer FROM bespreekpunten b LEFT JOIN projecten p ON p.id = b.project_id WHERE b.status <> 'open' AND b.besproken_op >= UTC_TIMESTAMP() - INTERVAL 21 DAY ORDER BY b.besproken_op DESC")->fetchAll();
 $kantoor = mensen_kantoor();
 
@@ -69,6 +70,16 @@ page_head('Overleg', 'overleg');
     </details>
   <?php endforeach; ?>
 </section>
+
+<?php if ($langLaat): ?>
+<section class="card">
+  <div class="row between wrap"><h2>Taken die al lang te laat zijn (<?= count($langLaat) ?>)</h2><a class="small" href="opschonen.php?bak=laat">Opschonen</a></div>
+  <p class="muted small">Meer dan 3 werkdagen over de deadline. Bespreek of ze nog nodig zijn, wie ze oppakt, of dat de deadline verschuift.</p>
+  <ul class="ptaken"><?php foreach ($langLaat as $t): ?>
+    <li><a href="taak.php?id=<?= (int)$t['id'] ?>"><?= e($t['titel']) ?></a> <span class="small muted"><?= e($t['eigenaar'] ? explode(' ', $t['eigenaar'])[0] : 'zonder eigenaar') ?> · uiterlijk <?= e(datum_kort($t['deadline'])) ?><?= $t['nummer'] ? ' · ' . e($t['nummer']) : '' ?></span></li>
+  <?php endforeach; ?></ul>
+</section>
+<?php endif; ?>
 
 <?php if ($recent): ?>
 <section class="card">

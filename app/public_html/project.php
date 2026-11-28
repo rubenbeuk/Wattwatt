@@ -60,6 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($tekst === '') flash('Schrijf eerst je notitie.', 'err');
         else { $u = user(); q('INSERT INTO notities (gebruiker_id, project_id, tekst) VALUES (?,?,?)', [$u['id'], $pr['id'], $tekst]); flash('Notitie opgeslagen. Iedereen op kantoor ziet hem; Claude verwerkt hem bij de volgende ronde.'); }
         redirect($terug . (($_POST['terug_tab'] ?? '') === 'overzicht' ? '' : '#tijdlijn'));
+    } elseif ($actie === 'vraag' && !is_onderaannemer()) {
+        // "Vraag Claude": de lichte run (elk uur op werkdagen) beantwoordt hem; het antwoord komt hier en op de tijdlijn
+        $tekst = mb_substr(trim((string)($_POST['tekst'] ?? '')), 0, 2000);
+        if ($tekst === '') flash('Schrijf eerst je vraag.', 'err');
+        else { $u = user(); q("INSERT INTO notities (gebruiker_id, project_id, soort, tekst) VALUES (?,?,'vraag',?)", [$u['id'], $pr['id'], $tekst]); flash('Vraag verstuurd. Claude antwoordt bij de volgende ronde (elk uur op werkdagen); je krijgt een seintje.'); }
+        redirect($terug . '#vraag');
     } elseif ($actie === 'materiaal_import' && is_admin()) {
         $regels = json_decode((string)($_POST['regels'] ?? ''), true);
         if (!is_array($regels) || !$regels) { flash('Geen regels gevonden in het bestand.', 'err'); redirect($terug); }
@@ -203,7 +209,7 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
       <?php endif; ?>
       <?php if ($pr['labels'] ?? ''): ?><dt>Labels</dt><dd><?= e($pr['labels']) ?></dd><?php endif; ?>
       <dt>Systeem</dt><dd><?= e($pr['systeem'] ?: '–') ?></dd>
-      <dt>Klant</dt><dd><?= ($pr['klant_id'] ?? null) && is_admin() ? '<a href="klant.php?id=' . (int)$pr['klant_id'] . '">' . e($pr['klant'] ?: 'klantkaart') . '</a>' : e($pr['klant'] ?: '–') ?></dd>
+      <dt>Klant</dt><dd><?= ($pr['klant_id'] ?? null) && (is_admin() || is_verkoop()) ? '<a href="klant.php?id=' . (int)$pr['klant_id'] . '">' . e($pr['klant'] ?: 'klantkaart') . '</a>' : e($pr['klant'] ?: '–') ?></dd>
       <dt>Adres</dt><dd><?= $pr['adres'] !== '' ? e($pr['adres']) . '<br><a href="' . e(route_url($pr['adres'])) . '" target="_blank" rel="noopener">Route</a>' : '<span class="warn-ink">ontbreekt</span>' ?></dd>
       <dt>Contact</dt><dd><?= e($pr['contact'] ?: '–') ?></dd>
       <dt>Projectleider</dt><dd><?= e($leider ?: 'Ruben en Berend') ?></dd>
@@ -271,6 +277,18 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
   </nav>
 
   <div class="ptab" data-tab="overzicht" id="overzicht">
+    <?php if (!is_onderaannemer()): $vragen = q("SELECT n.*, g.naam FROM notities n JOIN gebruikers g ON g.id = n.gebruiker_id WHERE n.project_id = ? AND n.soort = 'vraag' ORDER BY n.id DESC LIMIT 5", [$pr['id']])->fetchAll(); ?>
+    <section class="card" id="vraag">
+      <div class="row between"><h2>Vraag Claude</h2><span class="small muted">Antwoord binnen een uur op werkdagen</span></div>
+      <form method="post" class="row wrap mp-form"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="actie" value="vraag">
+        <input name="tekst" class="grow" required placeholder="Bijv. vat de laatste mail van de klant samen, of wat moet er nog voor de oplevering" aria-label="Vraag aan Claude">
+        <button class="btn small primary">Vraag</button></form>
+      <?php if ($vragen): ?><ul class="feed"><?php foreach ($vragen as $vq): ?>
+        <li><span class="small muted"><?= e(fmt_dt($vq['aangemaakt'])) ?> · <?= e(explode(' ', $vq['naam'])[0]) ?></span><br><b><?= e($vq['tekst']) ?></b>
+          <br><?= $vq['status'] === 'verwerkt' ? nl2br(e((string)$vq['verwerking'])) : '<span class="small muted">Wacht op antwoord van Claude</span>' ?></li>
+      <?php endforeach; ?></ul><?php endif; ?>
+    </section>
+    <?php endif; ?>
     <?php if (!is_admin()): ?>
     <section class="card"><h2>Wat er gepland staat</h2>
       <?php if (!$planKomt): ?><p class="muted">Niet ingepland.</p><?php endif; ?>

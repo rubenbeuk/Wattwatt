@@ -21,6 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Waarschuwing als iemand toch een wachtwoord intypt
     $wwVerdacht = preg_match('/\b(wachtwoord|password|pass|ww)\s*[:=]\s*\S+/i', implode("\n", array_filter([$v['netwerk'], $v['opmerkingen']])));
     $v['bijgewerkt_door'] = $u['naam'];
+    $v['concept_door'] = '';  // een mens heeft het nagekeken
     $klaar = isset($_POST['afronden']);
     q('INSERT INTO opleveringen (project_id, ' . implode(', ', array_keys($v)) . ') VALUES (?' . str_repeat(', ?', count($v)) . ')
        ON DUPLICATE KEY UPDATE ' . implode(', ', array_map(fn($k) => "$k = VALUES($k)", array_keys($v))), [$pr['id'], ...array_values($v)]);
@@ -47,6 +48,7 @@ page_head('Oplevering ' . $pr['nummer'], 'projecten');
   <h1>Opleverdossier</h1>
   <?php if (!empty($o['afgerond_op'])): ?><p class="flash ok">Afgerond op <?= e(date('d-m-Y', strtotime($o['afgerond_op'] . ' UTC'))) ?><?= $o['bijgewerkt_door'] ? ' · laatst bijgewerkt door ' . e($o['bijgewerkt_door']) : '' ?></p>
   <?php elseif ($ontbreekt): ?><p class="small oranje">Nog niet compleet: <?= e(implode(', ', $ontbreekt)) ?>.</p><?php endif; ?>
+  <?php if (($o['concept_door'] ?? '') !== '' && empty($o['afgerond_op'])): ?><div class="flash warn">Claude heeft dit dossier alvast ingevuld uit de melding, het materiaal en de projectgegevens. Kijk alles na, vul aan wat mist en sla op.</div><?php endif; ?>
   <form method="post" class="stack">
     <?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>">
     <label>EMS en monitoring <input name="ems" value="<?= e($o['ems'] ?? '') ?>" placeholder="bijv. Eniris, Teleport, Hoymiles S-Miles"></label>

@@ -1,7 +1,7 @@
 <?php
 // Klanten: één kaart per klant met contactgegevens, installatie en alle projecten en tickets.
 require __DIR__ . '/inc/bootstrap.php';
-require_admin();
+require_rol(['admin', 'verkoop']);
 
 $zoek = clean_text($_GET['q'] ?? '');
 $par = [];

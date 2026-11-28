@@ -128,14 +128,14 @@ $seintjes = seintjes_open($u['id']);
 $notities = notities_recent(is_admin() ? null : $u['id'], 8);
 // De ploeg ziet wat er vanuit de ploeg bij kantoor ligt (waar wachten we op) en elkaars taken; niet de eigen taken van kantoor
 $vanPloeg = $ploegTaken = $perKantoor = [];
-if (!is_admin()) {
+if (!is_admin() && !is_onderaannemer()) {
     $vanPloeg = q("SELECT t.id, t.titel, t.status, t.wacht_op, t.afgerond_op, v.naam van, e.naam eigenaar FROM taken t JOIN gebruikers v ON v.id = t.van_id
                    LEFT JOIN gebruikers e ON e.id = t.eigenaar_id
-                   WHERE v.rol = 'monteur' AND (t.eigenaar_id IS NULL OR e.rol = 'admin') AND (t.status <> 'klaar' OR t.afgerond_op >= (UTC_TIMESTAMP() - INTERVAL 3 DAY))
+                   WHERE v.rol IN ('monteur', 'onderaannemer') AND (t.eigenaar_id IS NULL OR e.rol = 'admin') AND (t.status <> 'klaar' OR t.afgerond_op >= (UTC_TIMESTAMP() - INTERVAL 3 DAY))
                    ORDER BY (t.status = 'klaar'), t.id DESC LIMIT 40")->fetchAll();
     foreach ($vanPloeg as $t) if ($t['status'] !== 'klaar') { $k = $t['eigenaar'] ? explode(' ', $t['eigenaar'])[0] : 'Nog te verdelen'; $perKantoor[$k] = ($perKantoor[$k] ?? 0) + 1; }
     $ploegTaken = q("SELECT t.titel, t.status, t.deadline, e.naam eigenaar FROM taken t JOIN gebruikers e ON e.id = t.eigenaar_id
-                     WHERE e.rol = 'monteur' AND t.eigenaar_id <> ? AND t.status <> 'klaar' ORDER BY e.naam, t.id LIMIT 40", [$u['id']])->fetchAll();
+                     WHERE e.rol IN ('monteur', 'onderaannemer') AND t.eigenaar_id <> ? AND t.status <> 'klaar' ORDER BY e.naam, t.id LIMIT 40", [$u['id']])->fetchAll();
 }
 $projecten = is_admin() ? q('SELECT nummer, omschrijving FROM projecten WHERE afgerond = 0 ORDER BY id DESC LIMIT 300')->fetchAll() : [];
 

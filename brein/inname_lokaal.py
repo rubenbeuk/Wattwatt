@@ -29,7 +29,8 @@ from datetime import date, datetime, timedelta, timezone
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 MAP = os.path.dirname(HIER)
-VAPP = os.path.join(MAP, "voorraad-app", "vapp.py")
+# Op de Mac staat vapp.py in OneDrive onder voorraad-app/; in de cloud (kopie van de repository) onder app/
+VAPP = next((p for p in (os.path.join(MAP, "voorraad-app", "vapp.py"), os.path.join(MAP, "app", "vapp.py")) if os.path.isfile(p)), os.path.join(MAP, "voorraad-app", "vapp.py"))
 PY = sys.executable or "python3"
 fouten = []
 

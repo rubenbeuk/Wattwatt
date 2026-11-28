@@ -1,5 +1,5 @@
 Module van de taak Watt Watt brein: werken NA de overstap van Pipedrive Projects naar de operatie-app.
-Geldt zodra in <MAP>/brein/overstap.json staat: {"projecten_in_app": true}. Staat dat er niet, of is het false, sla deze module over en werk zoals de kern zegt.
+Geldt altijd sinds de overstap van 26-11-2026 (overstap.json hoeft niet meer gelezen te worden). Lees daarnaast app_regels.md: die gaat voor bij verschil.
 Besluit Ruben 26-11-2026: "maak deze overstap nu gelijk. Dan stoppen we met pipedrive." Pipedrive blijft alleen voor sales (deals, leads, personen, activiteiten van sales).
 
 Wat deze module vervangt (lees de kern met deze regels erbovenop; bij verschil wint deze module):
