@@ -305,8 +305,8 @@ function termijnen_opslaan(int $pid, array $termijnen): array
         $oms = mb_substr(clean_text($t['omschrijving'] ?? ''), 0, 150);
         $pct = num($t['percentage'] ?? null); $bed = num($t['bedrag'] ?? null);
         if ($oms === '' || ($pct === null && $bed === null)) continue;
-        q('INSERT INTO termijnen (project_id, volgorde, omschrijving, percentage, bedrag, moment) VALUES (?,?,?,?,?,?)',
-            [$pid, ++$i, $oms, $pct, $bed, isset(TERMIJN_MOMENTEN[$t['moment'] ?? '']) ? $t['moment'] : 'handmatig']);
+        q('INSERT INTO termijnen (project_id, volgorde, omschrijving, percentage, bedrag, moment, controleren) VALUES (?,?,?,?,?,?,?)',
+            [$pid, ++$i, $oms, $pct, $bed, isset(TERMIJN_MOMENTEN[$t['moment'] ?? '']) ? $t['moment'] : 'handmatig', !empty($t['controleren']) ? 1 : 0]);
     }
     return ['termijnen' => $i];
 }
@@ -376,6 +376,20 @@ function factuur_zet_status(int $fid, string $status, array $u, string $nummer =
         }
     }
     return 'Factuurvoorstel: ' . strtolower(FACTUUR_STATUS[$status]) . '.';
+}
+/** Termijn die al buiten de app is gefactureerd: vastleggen als geboekt (met factuurnummer), zodat er geen tweede voorstel komt. */
+function termijn_al_gefactureerd(int $tid, string $nummer, array $u): string
+{
+    $t = q('SELECT * FROM termijnen WHERE id = ?', [$tid])->fetch();
+    if (!$t) return 'Termijn niet gevonden.';
+    $r = factuur_voorstel_termijn($tid, (string)$u['naam']);
+    if (isset($r['fout']) && empty($r['factuur'])) {
+        // Geen begroting: leg het vast met bedrag 0, het nummer is wat telt
+        $fid = factuur_maak((int)$t['project_id'], 'termijn', 'Termijn ' . (int)$t['volgorde'] . ': ' . $t['omschrijving'], [['omschrijving' => 'Termijn ' . (int)$t['volgorde'] . ': ' . $t['omschrijving'], 'aantal' => 1, 'eenheid' => 'post', 'prijs' => 0, 'bron' => 'voor de app']], $tid, (string)$u['naam']);
+    } else $fid = (int)$r['factuur'];
+    q('UPDATE termijnen SET controleren = 0 WHERE id = ?', [$tid]);
+    factuur_zet_status($fid, 'geboekt', $u, clean_text($nummer) !== '' ? $nummer : 'buiten de app');
+    return 'Vastgelegd als al gefactureerd.';
 }
 /** Termijnen die volgens hun moment nu gefactureerd kunnen worden (voor het brein en de pagina Facturen). */
 function termijnen_te_factureren(): array

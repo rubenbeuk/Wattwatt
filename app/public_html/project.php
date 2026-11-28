@@ -83,6 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $r = termijnen_opslaan((int)$pr['id'], $t);
         flash(isset($r['fout']) ? ucfirst($r['fout']) . '.' : "Termijnen opgeslagen ({$r['termijnen']}).", isset($r['fout']) ? 'err' : 'ok');
         redirect($terug . '#financieel');
+    } elseif ($actie === 'termijn_al' && is_admin()) {
+        flash(e(termijn_al_gefactureerd((int)($_POST['termijn_id'] ?? 0), (string)($_POST['nummer'] ?? ''), user())));
+        redirect($terug . '#financieel');
+    } elseif ($actie === 'termijn_nog' && is_admin()) {
+        q('UPDATE termijnen SET controleren = 0 WHERE id = ? AND project_id = ?', [(int)($_POST['termijn_id'] ?? 0), $pr['id']]);
+        flash('Termijn staat open om te factureren.');
+        redirect($terug . '#financieel');
     } elseif ($actie === 'factuur_termijn' && is_admin()) {
         $r = factuur_voorstel_termijn((int)($_POST['termijn_id'] ?? 0), user()['naam']);
         flash(isset($r['fout']) ? ucfirst($r['fout']) . '.' : 'Factuurvoorstel gemaakt: ' . fmt_eur($r['bedrag']) . ' excl. btw.', isset($r['fout']) ? 'err' : 'ok');
@@ -611,11 +618,20 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
             <td><input name="t_bedrag[]" inputmode="decimal" value="<?= $t && $t['bedrag'] !== null ? e(str_replace('.', ',', (string)(float)$t['bedrag'])) : '' ?>" style="max-width:8rem" <?= $vast ? 'readonly' : '' ?>></td>
             <td><select name="t_moment[]"><?php foreach (TERMIJN_MOMENTEN as $k => $n): ?><option value="<?= $k ?>" <?= ($t['moment'] ?? 'handmatig') === $k ? 'selected' : '' ?>><?= e($n) ?></option><?php endforeach; ?></select></td>
             <td class="small"><?php if ($t): ?><?= fmt_eur(termijn_bedrag($t, $begrotingTotaal)) ?>
-              <?= $vast ? '<span class="tag">' . e(FACTUUR_STATUS[$t['fstatus']]) . '</span>' : '<button class="btn small" form="ft' . (int)$t['id'] . '">Factuurvoorstel</button>' ?><?php endif; ?></td></tr>
+              <?= $vast ? '<span class="tag">' . e(FACTUUR_STATUS[$t['fstatus']]) . '</span>' : ($t['controleren'] ? '<span class="tag oranje">al gefactureerd?</span>' : '<button class="btn small" form="ft' . (int)$t['id'] . '">Factuurvoorstel</button>') ?><?php endif; ?></td></tr>
         <?php endforeach; ?>
         </tbody></table></div>
         <button class="btn small">Termijnen opslaan</button>
       </form>
+      <?php $teControleren = array_filter($termijnen, fn($t) => $t['controleren'] && !$t['fstatus']); if ($teControleren): ?>
+        <div class="voorstel small mt"><b>Eerst controleren:</b> deze termijnen waren al aan de beurt voordat ze in de app stonden. Zijn ze al gefactureerd?
+        <?php foreach ($teControleren as $t): ?>
+          <form method="post" class="row wrap"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="termijn_id" value="<?= (int)$t['id'] ?>">
+            <span class="grow">Termijn <?= (int)$t['volgorde'] ?>: <?= e($t['omschrijving']) ?> (<?= fmt_eur(termijn_bedrag($t, $begrotingTotaal)) ?>)</span>
+            <input name="nummer" placeholder="factuurnummer" aria-label="Factuurnummer" style="max-width:9rem">
+            <button class="btn small" name="actie" value="termijn_al">Al gefactureerd</button><button class="btn small ghost" name="actie" value="termijn_nog">Nog factureren</button></form>
+        <?php endforeach; ?></div>
+      <?php endif; ?>
       <?php foreach ($termijnen as $t): if ($t['fstatus']) continue; ?><form method="post" id="ft<?= (int)$t['id'] ?>"><?= csrf_field() ?><input type="hidden" name="nr" value="<?= e($pr['nummer']) ?>"><input type="hidden" name="actie" value="factuur_termijn"><input type="hidden" name="termijn_id" value="<?= (int)$t['id'] ?>"></form><?php endforeach; ?>
     </section>
     <section class="card">

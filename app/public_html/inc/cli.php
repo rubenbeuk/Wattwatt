@@ -798,6 +798,7 @@ try {
 
         // Betaaltermijnen. {"project":"PRJ-301","termijnen":[{"omschrijving":"Bij opdracht","percentage":30,"moment":"opdracht"},{"omschrijving":"Bij levering","percentage":60,"moment":"levering"},{"omschrijving":"Bij oplevering","percentage":10,"moment":"oplevering"}]}
         // moment: opdracht, levering, installatie, oplevering of handmatig. Een vast bedrag mag ook ("bedrag").
+        // "controleren": true = moment is al voorbij bij een lopend project; misschien al buiten de app gefactureerd. Daar maakt Claude geen voorstel voor; Ruben beslist.
         case 'termijnen':
             $pid = pid_of_fout((string)($d['project'] ?? ''));
             $r = termijnen_opslaan($pid, (array)($d['termijnen'] ?? []));
@@ -812,7 +813,9 @@ try {
             if (!empty($d['regie'])) $r = factuur_voorstel_regie($pid, 'Claude');
             else {
                 $tid = q('SELECT id FROM termijnen WHERE project_id = ? AND volgorde = ?', [$pid, (int)($d['termijn'] ?? 0)])->fetchColumn();
-                $r = $tid ? factuur_voorstel_termijn((int)$tid, 'Claude') : ['fout' => 'termijn niet gevonden'];
+                $r = !$tid ? ['fout' => 'termijn niet gevonden']
+                   : ((int)q('SELECT controleren FROM termijnen WHERE id = ?', [$tid])->fetchColumn() ? ['fout' => 'termijn staat op controleren (misschien al gefactureerd buiten de app); Ruben beslist']
+                   : factuur_voorstel_termijn((int)$tid, 'Claude'));
             }
             if (isset($r['fout'])) { uit($r); exit(1); }
             seintje_project($pid, 'Factuurvoorstel klaargezet door Claude', 'facturen.php?id=' . $r['factuur']);
@@ -824,7 +827,8 @@ try {
             $st = isset(FACTUUR_STATUS[$d['status'] ?? '']) ? $d['status'] : null;
             uit(['voorstellen' => q('SELECT f.id, pr.nummer, f.soort, f.omschrijving, f.status, f.boekhouding_nummer, f.concept_door, f.aangemaakt, (SELECT COALESCE(SUM(aantal * prijs), 0) FROM factuurregels r WHERE r.factuur_id = f.id) totaal_excl
                                          FROM facturen f JOIN projecten pr ON pr.id = f.project_id WHERE ' . ($st ? 'f.status = ?' : "f.status IN ('concept','akkoord','geboekt')") . ' ORDER BY f.id DESC LIMIT 100', $st ? [$st] : [])->fetchAll(),
-                 'klaar_om_te_factureren' => array_map(fn($t) => ['project' => $t['nummer'], 'termijn' => (int)$t['volgorde'], 'omschrijving' => $t['omschrijving'], 'moment' => $t['moment']], termijnen_te_factureren())]);
+                 'klaar_om_te_factureren' => array_values(array_map(fn($t) => ['project' => $t['nummer'], 'termijn' => (int)$t['volgorde'], 'omschrijving' => $t['omschrijving'], 'moment' => $t['moment']], array_filter(termijnen_te_factureren(), fn($t) => !$t['controleren']))),
+                 'eerst_controleren' => (int)q('SELECT COUNT(*) FROM termijnen WHERE controleren = 1')->fetchColumn()]);
             break;
 
         // Kleine standen lezen of zetten (watermerken, laatste run). {"sleutel":"licht_laatste"} leest; met "waarde" (tekst of JSON) zet. {} geeft alles.

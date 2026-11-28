@@ -36,7 +36,7 @@ page_head('Team', 'team');
 </section>
 <section class="card">
   <div class="row between wrap"><h2>Wat aandacht vraagt</h2><?php if ($ov): ?><span class="small muted">Claude, <?= e(fmt_dt($ov['bijgewerkt'])) ?></span><?php endif; ?></div>
-  <?php if (!$overzicht): ?><p class="muted small">Nog leeg. Claude zet hier bij elke grote run (7:00 en 17:30 op werkdagen) wat aandacht vraagt.</p><?php else: ?>
+  <?php if (!$overzicht): ?><p class="muted small">Nog leeg. Claude zet hier bij elke grote run (elke dag rond 7:00 en 17:30) wat aandacht vraagt.</p><?php else: ?>
   <?php if (!empty($overzicht['samenvatting'])): ?><p><?= e($overzicht['samenvatting']) ?></p><?php endif; ?>
   <ul class="ptaken"><?php foreach (array_slice((array)($overzicht['punten'] ?? []), 0, 15) as $p): $pnr = project_nummer((string)($p['project'] ?? '')); ?>
     <li><?php if (in_array($p['prioriteit'] ?? '', ['kritiek', 'hoog'], true)): ?><span class="tag p-<?= e($p['prioriteit']) ?>"><?= e(TAAK_PRIO[$p['prioriteit']] ?? '') ?></span> <?php endif; ?>

@@ -113,7 +113,9 @@ if ($f):
     $lijst = q("SELECT f.*, p.nummer, p.omschrijving pnaam, p.klant, (SELECT COALESCE(SUM(aantal * prijs), 0) FROM factuurregels r WHERE r.factuur_id = f.id) totaal
                 FROM facturen f JOIN projecten p ON p.id = f.project_id WHERE f.status IN ('concept','akkoord','geboekt') OR f.aangemaakt > DATE_SUB(NOW(), INTERVAL 60 DAY)
                 ORDER BY FIELD(f.status, 'concept', 'akkoord', 'geboekt', 'betaald', 'vervallen'), f.id DESC")->fetchAll();
-    $klaar = termijnen_te_factureren();
+    $klaarAlle = termijnen_te_factureren();
+    $klaar = array_values(array_filter($klaarAlle, fn($t) => !$t['controleren']));
+    $controleren = q("SELECT t.*, p.nummer, p.omschrijving pnaam FROM termijnen t JOIN projecten p ON p.id = t.project_id WHERE t.controleren = 1 ORDER BY p.nummer, t.volgorde")->fetchAll();
     $tickets = q("SELECT p.nummer, p.omschrijving, p.klant, (SELECT SUM(uren) FROM uren u WHERE u.project_id = p.id AND u.aangemaakt > COALESCE((SELECT MAX(aangemaakt) FROM facturen f WHERE f.project_id = p.id AND f.soort = 'regie' AND f.status <> 'vervallen'), '2000-01-01')) uren
                   FROM projecten p WHERE p.soort = 'service' AND p.fase = 'opgelost' AND p.opgelost_op > DATE_SUB(NOW(), INTERVAL 60 DAY) HAVING uren > 0 ORDER BY p.opgelost_op DESC LIMIT 30")->fetchAll();
     $perStatus = array_count_values(array_column($lijst, 'status'));
@@ -132,6 +134,14 @@ if ($f):
   <ul class="plijst"><?php foreach ($klaar as $t): ?>
     <li><a href="project.php?nr=<?= e(rawurlencode($t['nummer'])) ?>#financieel"><b><?= e($t['nummer']) ?></b></a> <?= e($t['pnaam']) ?> · termijn <?= (int)$t['volgorde'] ?>: <?= e($t['omschrijving']) ?> <span class="small muted">(<?= e(TERMIJN_MOMENTEN[$t['moment']]) ?>)</span>
       <form method="post" style="display:inline"><?= csrf_field() ?><input type="hidden" name="actie" value="termijn"><input type="hidden" name="termijn_id" value="<?= (int)$t['id'] ?>"><button class="btn small">Factuurvoorstel</button></form></li>
+  <?php endforeach; ?></ul>
+</section>
+<?php endif; ?>
+<?php if ($controleren): ?>
+<section class="card"><h2>Eerst controleren: al gefactureerd?</h2>
+  <p class="small muted">Termijnen van projecten die al liepen voordat ze in de app stonden. Geef per project aan wat al gefactureerd is; daarvoor komt geen voorstel.</p>
+  <ul class="plijst"><?php foreach ($controleren as $t): ?>
+    <li><a href="project.php?nr=<?= e(rawurlencode($t['nummer'])) ?>#financieel"><b><?= e($t['nummer']) ?></b></a> <?= e($t['pnaam']) ?> · termijn <?= (int)$t['volgorde'] ?>: <?= e($t['omschrijving']) ?></li>
   <?php endforeach; ?></ul>
 </section>
 <?php endif; ?>

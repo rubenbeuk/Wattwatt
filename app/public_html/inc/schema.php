@@ -599,6 +599,8 @@ function schema_migreren(): array
         ['uren', 'bron', "VARCHAR(10) NOT NULL DEFAULT 'hand' AFTER omschrijving"],
         ['uren', 'akkoord_door', "VARCHAR(100) NOT NULL DEFAULT '' AFTER bron"],
         ['uren', 'akkoord_op', "DATETIME NULL AFTER akkoord_door"],
+        // Termijnen van lopende projecten: eerst controleren of ze al buiten de app zijn gefactureerd (28-11-2026)
+        ['termijnen', 'controleren', "TINYINT(1) NOT NULL DEFAULT 0 AFTER moment"],
     ];
     foreach ($kolommen as [$tabel, $kolom, $def]) {
         $bestaat = q("SELECT COUNT(*) c FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?", [$tabel, $kolom])->fetch()['c'];
