@@ -10,15 +10,18 @@ function page_head(string $title, string $active = ''): void
     $hoofd['projecten'] = ['projecten.php', 'Projecten'];
     $hoofd['service'] = ['service.php', 'Service'];
     $hoofd['agenda'] = ['agenda.php', 'Agenda'];
-    if (is_admin()) $hoofd['klanten'] = ['klanten.php', 'Klanten'];
+    if (is_admin() || is_verkoop()) $hoofd['klanten'] = ['klanten.php', 'Klanten'];
     if (is_admin()) $hoofd['overleg'] = ['overleg.php', 'Overleg'];
     $hoofd['uren'] = ['uren.php', 'Uren'];
     $voorraad = ['scan' => ['index.php', 'Scan'], 'voorraad' => ['voorraad.php', 'Voorraad'], 'inkoop' => ['inkoop.php', 'Inkoop'], 'mutaties' => ['mutaties.php', 'Historie']];
     if (is_admin()) { $voorraad['import'] = ['import.php', 'Import']; $voorraad['labels'] = ['labels.php', 'Labels']; }
+    if (is_onderaannemer()) $voorraad = [];
     $ik = ['account' => ['account.php', 'Mijn account']];
-    if (is_admin()) $ik['gebruikers'] = ['gebruikers.php', 'Gebruikers'];
+    if (is_admin()) { $ik['claude'] = ['claude.php', 'Door Claude']; $ik['opschonen'] = ['opschonen.php', 'Takenlijst opschonen']; $ik['gebruikers'] = ['gebruikers.php', 'Gebruikers']; }
     $onder = ['dag' => ['dag.php', 'Mijn dag', '☀'], 'planning' => ['planning.php', is_admin() ? 'Planning' : 'Ploeg', '▦'],
               'projecten' => ['projecten.php', 'Projecten', '◧'], 'scan' => ['index.php', 'Scan', '⌗']];
+    // Onderaannemer: alleen zijn eigen dag en uren
+    if (is_onderaannemer()) { $hoofd = ['dag' => ['dag.php', 'Mijn dag'], 'uren' => ['uren.php', 'Uren']]; $onder = ['dag' => ['dag.php', 'Mijn dag', '☀'], 'uren' => ['uren.php', 'Uren', '◷']]; }
     $inVoorraad = isset($voorraad[$active]);
     ?><!doctype html>
 <html lang="nl">
@@ -30,7 +33,7 @@ function page_head(string $title, string $active = ''): void
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icon.svg">
 <title><?= e($title) ?> · <?= e(APP_NAME) ?></title>
-<link rel="stylesheet" href="assets/app.css?v=23">
+<link rel="stylesheet" href="assets/app.css?v=24">
 </head>
 <body>
 <?php if ($u): ?>
@@ -40,9 +43,9 @@ function page_head(string $title, string $active = ''): void
     <?php foreach ($hoofd as $key => [$href, $label]): ?>
       <a href="<?= e($href) ?>" class="<?= $key === $active ? 'on' : '' ?>"><?= e($label) ?></a>
     <?php endforeach; ?>
-    <details class="menu<?= $inVoorraad ? ' on' : '' ?>"><summary>Voorraad ▾</summary>
+    <?php if ($voorraad): ?><details class="menu<?= $inVoorraad ? ' on' : '' ?>"><summary>Voorraad ▾</summary>
       <div class="menu-lijst"><?php foreach ($voorraad as $key => [$href, $label]): ?><a href="<?= e($href) ?>" class="<?= $key === $active ? 'on' : '' ?>"><?= e($label) ?></a><?php endforeach; ?></div>
-    </details>
+    </details><?php endif; ?>
   </nav>
   <div class="topr">
     <a href="dag.php#seintjes" id="seintjeTeller" class="seintjeknop<?= $nSeintjes ? ' aan' : '' ?>" data-n="<?= $nSeintjes ?>" title="Seintjes"><?= $nSeintjes ? $nSeintjes . ' nieuw' : 'Seintjes' ?></a>

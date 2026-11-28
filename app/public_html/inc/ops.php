@@ -633,3 +633,79 @@ function bespreekpunt_opslaan(array $d, string $door): array
     }
     return ['id' => $id, 'nieuw' => !$best] + q('SELECT titel, prioriteit, status, besluit FROM bespreekpunten WHERE id = ?', [$id])->fetch();
 }
+
+// ---------- Takenlijst schoon houden (28-11-2026) ----------
+/** Titel vergelijkbaar maken: kleine letters, zonder PRJ-nummers, datums en leestekens. */
+function taak_kern(string $t): string
+{
+    $t = mb_strtolower($t);
+    $t = preg_replace('/\b(prj|ww)[\s\-]*[\w\-]*\d+\b|\b\d{1,2}[\-\/]\d{1,2}([\-\/]\d{2,4})?\b|[^\p{L}\p{N} ]+/u', ' ', $t);
+    return trim(preg_replace('/\s+/', ' ', $t));
+}
+/** Open taken die op deze titel lijken (zelfde project, of zonder project dezelfde eigenaar). Voor "eerst bijwerken, dan nieuw maken". */
+function taak_lijkt_op(string $titel, ?int $pid, ?int $eig): array
+{
+    $kern = taak_kern($titel);
+    if (mb_strlen($kern) < 6) return [];
+    $kand = $pid ? q("SELECT id, titel, extern_id, status FROM taken WHERE status <> 'klaar' AND project_id = ?", [$pid])->fetchAll()
+                 : q("SELECT id, titel, extern_id, status FROM taken WHERE status <> 'klaar' AND project_id IS NULL AND eigenaar_id <=> ?", [$eig])->fetchAll();
+    $uit = [];
+    foreach ($kand as $k) {
+        $b = taak_kern($k['titel']);
+        if ($b === '') continue;
+        similar_text($kern, $b, $pct);
+        if ($pct >= 75 || ($b !== '' && mb_strlen($b) >= 8 && (str_contains($kern, $b) || str_contains($b, $kern)))) $uit[] = ['id' => (int)$k['id'], 'titel' => $k['titel'], 'extern_id' => $k['extern_id'], 'lijkt' => (int)round($pct)];
+    }
+    return array_slice($uit, 0, 5);
+}
+/** Cijfers voor de takenlijst: open, zonder eigenaar, te laat, zonder project. */
+function taken_cijfers(): array
+{
+    return q("SELECT COUNT(*) AS open, SUM(eigenaar_id IS NULL) AS zonder_eigenaar, SUM(deadline IS NOT NULL AND deadline < CURDATE()) AS te_laat,
+              SUM(project_id IS NULL) AS zonder_project FROM taken WHERE status <> 'klaar'")->fetch();
+}
+/** Taken die al meer dan 3 werkdagen over hun deadline zijn (komen vanzelf op Overleg). */
+function taken_lang_te_laat(): array
+{
+    $grens = vandaag();
+    for ($i = 0; $i < 3; $i++) { do { $grens = dag_plus($grens, -1); } while ((int)date('N', strtotime($grens)) >= 6); }
+    return q("SELECT t.id, t.titel, t.deadline, g.naam AS eigenaar, pr.nummer FROM taken t LEFT JOIN gebruikers g ON g.id = t.eigenaar_id LEFT JOIN projecten pr ON pr.id = t.project_id
+              WHERE t.status <> 'klaar' AND t.deadline IS NOT NULL AND t.deadline < ? ORDER BY t.deadline, t.id LIMIT 60", [$grens])->fetchAll();
+}
+/** Opschoonvoorstel uitvoeren of afwijzen. */
+function taak_voorstel_besluit(int $id, bool $akkoord, array $u): string
+{
+    $v = q("SELECT v.*, t.titel, t.status AS taak_status FROM taak_voorstellen v JOIN taken t ON t.id = v.taak_id WHERE v.id = ? AND v.status = 'open'", [$id])->fetch();
+    if (!$v) return 'Voorstel niet gevonden of al besloten.';
+    q('UPDATE taak_voorstellen SET status = ?, besloten_door = ?, besloten_op = UTC_TIMESTAMP() WHERE id = ?', [$akkoord ? 'akkoord' : 'afgewezen', $u['id'], $id]);
+    if (!$akkoord) return 'Afgewezen.';
+    if ($v['taak_status'] === 'klaar') return 'De taak was al klaar.';
+    $tid = (int)$v['taak_id']; $reden = $v['reden'];
+    switch ($v['actie']) {
+        case 'klaar': taak_zet_status($tid, 'klaar', 'Opgeschoond (voorstel Claude, akkoord ' . $u['naam'] . '): ' . $reden, $u['id'], $u['naam']); break;
+        case 'vervalt': taak_zet_status($tid, 'klaar', 'Vervallen (voorstel Claude, akkoord ' . $u['naam'] . '): ' . $reden, $u['id'], $u['naam']); break;
+        case 'samenvoegen':
+            $in = q("SELECT * FROM taken WHERE id = ? AND status <> 'klaar'", [(int)$v['in_taak_id']])->fetch();
+            if (!$in) return 'De taak om in samen te voegen is er niet meer.';
+            $t = q('SELECT * FROM taken WHERE id = ?', [$tid])->fetch();
+            q('UPDATE taken SET toelichting = ? WHERE id = ?', [trim(($in['toelichting'] ?? '') . "\n\nSamengevoegd met: " . $t['titel'] . ($t['toelichting'] ? "\n" . $t['toelichting'] : '')), $in['id']]);
+            taak_log((int)$in['id'], 'Taak #' . $tid . ' hierin samengevoegd: ' . $reden, $u['id'], $u['naam']);
+            taak_zet_status($tid, 'klaar', 'Vervallen, samengevoegd met taak #' . $in['id'] . ': ' . $reden, $u['id'], $u['naam']);
+            break;
+        case 'eigenaar':
+            q('UPDATE taken SET eigenaar_id = ? WHERE id = ?', [$v['eigenaar_id'], $tid]);
+            $nm = q('SELECT naam FROM gebruikers WHERE id = ?', [$v['eigenaar_id']])->fetchColumn();
+            taak_log($tid, 'Eigenaar: ' . $nm . ' (voorstel Claude, akkoord ' . $u['naam'] . ')', $u['id'], $u['naam']);
+            if ((int)$v['eigenaar_id'] !== (int)$u['id']) seintje((int)$v['eigenaar_id'], 'Taak voor jou: ' . mb_substr($v['titel'], 0, 150), 'taak.php?id=' . $tid);
+            break;
+        case 'deadline':
+            q('UPDATE taken SET deadline = ? WHERE id = ?', [$v['deadline'], $tid]);
+            taak_log($tid, 'Nieuwe deadline ' . datum_kort($v['deadline']) . ' (voorstel Claude): ' . $reden, $u['id'], $u['naam']);
+            break;
+        case 'project':
+            q('UPDATE taken SET project_id = ? WHERE id = ?', [$v['project_id'], $tid]);
+            taak_log($tid, 'Aan project gekoppeld (voorstel Claude)', $u['id'], $u['naam']);
+            break;
+    }
+    return 'Uitgevoerd.';
+}

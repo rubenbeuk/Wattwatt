@@ -15,8 +15,36 @@ $totaal = max(1, count($alle));
 $toon = (int)($_GET['wie'] ?? 0);
 $projecten = q('SELECT nummer, omschrijving FROM projecten WHERE afgerond = 0 ORDER BY id DESC LIMIT 300')->fetchAll();
 
+$cijfers = taken_cijfers();
+$nVoorstel = (int)q("SELECT COUNT(*) FROM taak_voorstellen WHERE status = 'open'")->fetchColumn();
+$nClaude = (int)q('SELECT COUNT(*) FROM claude_log WHERE aangemaakt >= ? AND ongedaan_op IS NULL', [$begin])->fetchColumn();
+// Overzicht van het brein (vroeger in het Operationeel dashboard): wat vraagt aandacht, gezet door de grote run
+$ov = q("SELECT waarde, bijgewerkt FROM brein_stand WHERE sleutel = 'overzicht'")->fetch();
+$overzicht = $ov ? (json_decode($ov['waarde'], true) ?: null) : null;
+
 page_head('Team', 'team');
 ?>
+<section class="card">
+  <div class="row between wrap"><h1>Takenlijst</h1><span class="small"><a href="opschonen.php">Opschonen</a> · <a href="claude.php">Vandaag door Claude (<?= $nClaude ?>)</a></span></div>
+  <div class="stats">
+    <div><b><?= (int)$cijfers['open'] ?></b><span>open</span></div>
+    <a href="opschonen.php?bak=eigenaar"<?= $cijfers['zonder_eigenaar'] ? ' class="rood"' : '' ?>><b><?= (int)$cijfers['zonder_eigenaar'] ?></b><span>zonder eigenaar</span></a>
+    <a href="opschonen.php?bak=laat"<?= $cijfers['te_laat'] ? ' class="rood"' : '' ?>><b><?= (int)$cijfers['te_laat'] ?></b><span>over de deadline</span></a>
+    <a href="opschonen.php?bak=project"><b><?= (int)$cijfers['zonder_project'] ?></b><span>zonder project</span></a>
+    <?php if ($nVoorstel): ?><a href="opschonen.php"><b><?= $nVoorstel ?></b><span>opschoonvoorstellen</span></a><?php endif; ?>
+  </div>
+</section>
+<?php if ($overzicht): ?>
+<section class="card">
+  <div class="row between wrap"><h2>Wat aandacht vraagt</h2><span class="small muted">Claude, <?= e(fmt_dt($ov['bijgewerkt'])) ?></span></div>
+  <?php if (!empty($overzicht['samenvatting'])): ?><p><?= e($overzicht['samenvatting']) ?></p><?php endif; ?>
+  <ul class="ptaken"><?php foreach (array_slice((array)($overzicht['punten'] ?? []), 0, 15) as $p): $pnr = project_nummer((string)($p['project'] ?? '')); ?>
+    <li><?php if (in_array($p['prioriteit'] ?? '', ['kritiek', 'hoog'], true)): ?><span class="tag p-<?= e($p['prioriteit']) ?>"><?= e(TAAK_PRIO[$p['prioriteit']] ?? '') ?></span> <?php endif; ?>
+      <b><?= e((string)($p['titel'] ?? '')) ?></b><?= $pnr !== '' ? ' · <a href="project.php?nr=' . e(rawurlencode($pnr)) . '">' . e($pnr) . '</a>' : '' ?><?= !empty($p['eigenaar']) ? ' <span class="small muted">' . e((string)$p['eigenaar']) . '</span>' : '' ?>
+      <?php if (!empty($p['toelichting'])): ?><br><span class="small muted"><?= e((string)$p['toelichting']) ?></span><?php endif; ?></li>
+  <?php endforeach; ?></ul>
+</section>
+<?php endif; ?>
 <section class="card">
   <h1>Wie heeft wat open</h1>
   <div class="teamgrid">

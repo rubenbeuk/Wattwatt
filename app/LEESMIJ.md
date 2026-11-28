@@ -97,3 +97,15 @@ Nog te doen:
 3. Na de eerste brein-runs controleren of taken en voorstellen goed in de app komen.
 
 Controleren zonder in te loggen (alleen lezen, op de droplet): `php /root/render-live.php dag.php "" boris` rendert een pagina tegen de echte database als die gebruiker.
+
+## Ronde 1 verbeteradvies (28-11-2026)
+- **Door Claude** (`claude.php`, kantoor): alles wat het brein via vapp.py veranderde, per run, met een knop Ongedaan. Ongedaan weigert als iemand de rij daarna zelf aanpaste. Tabel `claude_log` met voor/na van elke rij.
+- **Takenlijst opschonen** (`opschonen.php`, kantoor): voorstellen van Claude (afvinken, vervalt, samenvoegen, eigenaar, deadline, project) goedkeuren of afwijzen, en zelf snel opruimen. Tabel `taak_voorstellen`.
+- **Strengere taakregels in de CLI**: een nieuwe taak zonder eigenaar wordt geweigerd; een taak die lijkt op een open taak ook, tenzij `toch_nieuw`.
+- **Rollen** verkoop (klanten, projecten, geen beheer) en onderaannemer (alleen eigen dag, uren, foto's en geplande projecten).
+- **Tweede inlogstap** (`tweestaps.php`): code-app verplicht voor kantoor (uit te zetten met `'tweestaps' => false` in de config). Reset bij Gebruikers of met `vapp.py tweestaps_uit` (alleen via SSH).
+- **Vraag Claude** op de projectpagina (notitie soort "vraag"); het brein antwoordt met `vraag_antwoord` op de tijdlijn.
+- **Team**: takencijfers en "Wat aandacht vraagt" (brein_stand `overzicht`). **Overleg**: taken die meer dan 3 werkdagen te laat zijn.
+- **Opleverdossier als concept**: `oplevering_concept` vult lege velden na "werk klaar"; de projectleider ziet een banner.
+- **Brein-stand** staat nu in de app (brein_stand `groot`), niet meer in het dashboard. Regels: `brein/instructie/app_regels.md`.
+- Na het live zetten: `php cli.php migreer` draaien (nieuwe tabellen en kolommen).

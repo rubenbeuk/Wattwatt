@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $naam = clean_text($_POST['naam'] ?? '');
         $gn = strtolower(clean_text($_POST['gebruikersnaam'] ?? ''));
         $ww = (string)($_POST['wachtwoord'] ?? '');
-        $rol = ($_POST['rol'] ?? '') === 'admin' ? 'admin' : 'monteur';
+        $rol = isset(ROLLEN[$_POST['rol'] ?? '']) ? $_POST['rol'] : 'monteur';
         $zonderLogin = isset($_POST['zonder_login']);
         if ($naam === '' || $gn === '' || (!$zonderLogin && strlen($ww) < 8)) {
             flash('Vul naam en gebruikersnaam in; wachtwoord minimaal 8 tekens.', 'err');
@@ -34,8 +34,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             q('UPDATE gebruikers SET planbaar = 1 - planbaar WHERE id = ?', [$id]); flash('Bijgewerkt.');
         } elseif ($actie === 'volgorde') {
             q('UPDATE gebruikers SET volgorde = ? WHERE id = ?', [(int)($_POST['volgorde'] ?? 100), $id]); flash('Volgorde opgeslagen.');
-        } elseif ($actie === 'rol' && $id !== $u['id']) {
-            q("UPDATE gebruikers SET rol = IF(rol = 'admin', 'monteur', 'admin') WHERE id = ?", [$id]); flash('Rol gewijzigd.');
+        } elseif ($actie === 'rol' && $id !== $u['id'] && isset(ROLLEN[$_POST['rol'] ?? ''])) {
+            q('UPDATE gebruikers SET rol = ? WHERE id = ?', [$_POST['rol'], $id]);
+            // Alleen kantoor kan beslisser zijn
+            if ($_POST['rol'] !== 'admin') q('UPDATE gebruikers SET beslisser = 0 WHERE id = ?', [$id]);
+            flash('Rol gewijzigd naar ' . e(ROLLEN[$_POST['rol']]) . '.');
+        } elseif ($actie === 'tweestaps_reset' && $id !== $u['id']) {
+            q('UPDATE gebruikers SET totp_geheim = NULL, totp_sinds = NULL WHERE id = ?', [$id]);
+            flash('Code-app gereset. Bij de volgende keer inloggen stelt deze persoon hem opnieuw in.');
         }
     }
     redirect('gebruikers.php');
@@ -52,7 +58,11 @@ page_head('Gebruikers', 'gebruikers');
     <?php foreach ($rows as $r): ?>
       <tr class="<?= $r['actief'] ? '' : 'muted' ?>">
         <td><?= e($r['naam']) ?></td><td><?= e($r['gebruikersnaam']) ?></td>
-        <td><?= $r['rol'] === 'admin' ? 'Kantoor' : 'Monteur' ?><?= $r['wachtwoord_hash'] === '' ? '<br><span class="small muted">nog geen login</span>' : '' ?><?= $r['beslisser'] ? '<br><span class="tag st-klaar">Beslist</span>' : '' ?></td>
+        <td><?php if ((int)$r['id'] !== $u['id']): ?><form method="post"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)$r['id'] ?>"><input type="hidden" name="actie" value="rol">
+              <select name="rol" onchange="this.form.submit()" aria-label="Rol"><?php foreach (ROLLEN as $k => $n): ?><option value="<?= $k ?>"<?= $r['rol'] === $k ? ' selected' : '' ?>><?= e($n) ?></option><?php endforeach; ?></select></form>
+            <?php else: ?><?= e(ROLLEN[$r['rol']] ?? $r['rol']) ?><?php endif; ?>
+            <?= $r['wachtwoord_hash'] === '' ? '<br><span class="small muted">nog geen login</span>' : '' ?><?= $r['beslisser'] ? '<br><span class="tag st-klaar">Beslist</span>' : '' ?>
+            <?= $r['totp_geheim'] ? '<br><span class="small muted">code-app aan</span>' : ($r['rol'] === 'admin' && $r['wachtwoord_hash'] !== '' ? '<br><span class="small warn-ink">code-app nog niet ingesteld</span>' : '') ?></td>
         <td><form method="post" class="row"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)$r['id'] ?>">
             <button class="btn small <?= $r['planbaar'] ? 'primary' : 'ghost' ?>" name="actie" value="planbaar"><?= $r['planbaar'] ? 'Ja' : 'Nee' ?></button>
             <?php if ($r['planbaar']): ?><input name="volgorde" value="<?= (int)$r['volgorde'] ?>" inputmode="numeric" aria-label="Volgorde in de planning" style="width:64px;min-height:36px;padding:.3rem .5rem" onchange="this.form.querySelector('[data-v]').click()"><button name="actie" value="volgorde" data-v hidden></button><?php endif; ?>
@@ -64,7 +74,7 @@ page_head('Gebruikers', 'gebruikers');
             <input name="wachtwoord" type="password" placeholder="Nieuw wachtwoord" minlength="8" autocomplete="new-password">
             <button class="btn small" name="actie" value="wachtwoord">Zet</button>
             <?php if ((int)$r['id'] !== $u['id']): ?>
-              <button class="btn small ghost" name="actie" value="rol" formnovalidate>Maak <?= $r['rol'] === 'admin' ? 'monteur' : 'kantoor' ?></button>
+              <?php if ($r['totp_geheim']): ?><button class="btn small ghost" name="actie" value="tweestaps_reset" formnovalidate onclick="return confirm('Code-app van <?= e($r['naam']) ?> resetten? Alleen doen als de telefoon kwijt of nieuw is.')">Reset code-app</button><?php endif; ?>
               <button class="btn small ghost" name="actie" value="actief" formnovalidate><?= $r['actief'] ? 'Blokkeer' : 'Activeer' ?></button>
               <?php if ($r['rol'] === 'admin' && is_beslisser()): ?><button class="btn small ghost" name="actie" value="beslisser" formnovalidate title="Wat een beslisser invult of goedkeurt is direct goed"><?= $r['beslisser'] ? 'Beslist niet meer' : 'Laat beslissen' ?></button><?php endif; ?>
             <?php endif; ?>
@@ -83,7 +93,7 @@ page_head('Gebruikers', 'gebruikers');
     <label>Naam <input name="naam" required></label>
     <label>Gebruikersnaam <input name="gebruikersnaam" autocapitalize="none" required></label>
     <label>Wachtwoord (min. 8 tekens) <input name="wachtwoord" type="password" minlength="8" autocomplete="new-password"></label>
-    <label>Rol <select name="rol"><option value="monteur">Monteur (eigen dag, ploeg, foto's, scannen; geen bedragen)</option><option value="admin">Kantoor (ook planning, taken, team, import, gebruikers)</option></select></label>
+    <label>Rol <select name="rol"><option value="monteur">Monteur (eigen dag, ploeg, foto's, scannen; geen bedragen)</option><option value="verkoop">Verkoop (klanten, projecten, service, agenda; geen bedragen)</option><option value="onderaannemer">Onderaannemer (alleen eigen dag, uren en foto's van projecten waar hij staat)</option><option value="admin">Kantoor (alles; inloggen met code-app)</option></select></label>
     <label class="check"><input type="checkbox" name="planbaar" checked> Staat in de planning</label>
     <label class="check"><input type="checkbox" name="zonder_login"> Kan niet inloggen (onderaannemer die alleen wordt ingepland; wachtwoord mag leeg)</label>
     <button class="btn primary">Account aanmaken</button>

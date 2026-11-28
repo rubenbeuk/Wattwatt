@@ -1,0 +1,41 @@
+Module van de taak Watt Watt brein: STAND, TAKEN EN NIEUWE OPDRACHTEN IN DE APP (besluit Ruben 28-11-2026).
+Geldt voor de grote run (Mac of cloud) en de lichte run. Lees deze module elke run, direct na het slot. Bij verschil met de kern of na_overstap.md wint deze module.
+
+1. DE STAND STAAT IN DE APP, NIET MEER IN HET DASHBOARD
+- De stand van de grote run (alle watermerken zoals bijgewerkt, support_bijgewerkt, collega_bijgewerkt, claude_opdrachten_bijgewerkt, mail_opdrachten_bijgewerkt, teams_bijgewerkt, whatsapp_bijgewerkt; de verwerkt-lijsten claude_opdrachten_verwerkt, mail_opdrachten_verwerkt, teams_verwerkt, whatsapp_zelf_verwerkt, vragen_gesteld; verzonden_map_id; de items; het veld brein met dagtaken_datum, projectbeheer_datum, pauze_tot en projectnotities_overgezet) staat in de app onder de sleutel "groot".
+- Lezen: python3 "<MAP>/voorraad-app/vapp.py" brein_stand '{"sleutel":"groot"}' (naar bestand). Waar de kern of een module "snapshot/mail" zegt, bedoelen we deze stand. Lees en schrijf snapshot/mail in het dashboard niet meer.
+- Eenmalig (eerste run waarin "groot" leeg is of ontbreekt): lees snapshot/mail nog één keer uit het dashboard (ArtifactData, naar bestand) en schrijf het hele document ongewijzigd als waarde van "groot" (brein_stand met "waarde"). Noem in de afsluiting "Stand overgezet naar de app".
+- Schrijven (grote run, afsluiting): één brein_stand-schrijfactie met de hele bijgewerkte stand. Behoud alle velden die je niet wijzigde.
+- Een lijst aanvullen zonder de rest te raken (lichte run, of tussendoor): python3 "<MAP>/voorraad-app/vapp.py" brein_lijst '{"sleutel":"groot","lijst":"<naam van de lijst>","ids":["<id>", ...],"max":200}'. De lichte run schrijft nooit de hele stand "groot"; alleen brein_lijst. Zijn eigen watermerken blijven onder "licht".
+- Het dashboard blijft alleen voor wat het team ziet: snapshot/planning, snapshot/acties, snapshot/excel_projecten en prive/financieel (C1), en de collecties die Ruben zelf vult (updates, afgehandeld, item, log; die lees je zoals de kern zegt).
+
+2. WAT AANDACHT VRAAGT (vervangt snapshot/risico; staat op de pagina Team)
+- Waar stap D van de kern snapshot/risico bijwerkt, schrijf je hetzelfde naar de app: python3 "<MAP>/voorraad-app/vapp.py" brein_stand '{"sleutel":"overzicht","waarde":{"samenvatting":"<één of twee zinnen: hoe staat het ervoor>","punten":[{"titel":"..","toelichting":"..","project":"PRJ-<nr> of ticketnummer","prioriteit":"kritiek|hoog|normaal|laag","eigenaar":"<voornaam>"}]}}'.
+- Maximaal 15 punten, belangrijkste eerst. Rood = kritiek, oranje = hoog, grijs = normaal. Geen bedragen, geen personeelszaken (kantoor ziet de pagina Team).
+
+3. STRENGERE REGELS VOOR TAKEN (de app dwingt ze af)
+- Een nieuwe taak heeft altijd een eigenaar. Geeft de app "eigenaar ontbreekt": kies de eigenaar volgens de vaste verdeling (werkdocument, materiaal, service = julian; leveranciers, transport, onderaannemers, techniek = berend; planning, klantdatum, termijnfacturen = ruben). Is het echt niet te bepalen, maak dan een bespreekpunt in plaats van een taak (na_overstap.md punt 8). Dit vervangt "laat eigenaar weg" in de kern.
+- Geeft de app "lijkt op een open taak" met een lijst "bestaand": dan is het bijna altijd dezelfde zaak. Werk de bestaande taak bij (vapp.py taak met {"id": <id uit bestaand>, "toelichting": ..}) of zet een stand met taak_status. Alleen als het aantoonbaar een andere handeling is (ander persoon, ander onderwerp), stuur je de taak opnieuw met "toch_nieuw": true en zet je in de toelichting waarom het een andere zaak is.
+- Een taak die alleen informatie is (er hoeft niemand iets te doen) wordt een tijdlijnbericht (project_bericht), geen taak.
+- Taken die meer dan 3 werkdagen over de deadline zijn, staan vanzelf op de pagina Overleg. Maak daar geen bespreekpunt voor; noem ze in F2 zoals de kern zegt (B2b, "Te laat, wat doen we ermee").
+
+4. OPSCHOONRONDE (alleen de grote run, alleen als dagtaken true is, zolang er meer dan 60 open taken zijn)
+- Lees alle open taken (bestand uit stap 0) en de open voorstellen: python3 "<MAP>/voorraad-app/vapp.py" taak_opschoonvoorstellen '{}'.
+- Stel per taak hooguit één actie voor met python3 "<MAP>/voorraad-app/vapp.py" taak_opschoonvoorstel '{"taak":<id>,"actie":"klaar|vervalt|samenvoegen|eigenaar|deadline|project","reden":"<bewijs of reden, bron en datum, 1 zin>", ...}'. Extra velden: "eigenaar" (gebruikersnaam) bij eigenaar, "in" (id van de taak die blijft) bij samenvoegen, "deadline" (JJJJ-MM-DD) bij deadline, "project" (PRJ-nummer) bij project.
+- Volgorde: eerst taken zonder eigenaar (stel een eigenaar voor), dan taken uit Pipedrive (extern_id "pd:") van projecten die afgerond zijn of waarvan de dag voorbij is, dan dubbelen, dan taken die lang over de deadline zijn.
+- Klaar of vervalt alleen met dezelfde bewijsregels als B2 en B2b. Zonder bewijs: geen voorstel. Een voorstel verandert niets; Ruben of Berend keurt het goed op de pagina "Takenlijst opschonen".
+- Afgewezen voorstellen (taak_opschoonvoorstellen met "sinds") stel je niet opnieuw voor. Maximaal 40 voorstellen per run. Noem het aantal in F2 met een link naar de pagina.
+
+5. VRAGEN AAN CLAUDE VANUIT DE APP (lichte en grote run)
+- In vapp.py notities heeft elke notitie een veld soort. Soort "vraag" is een vraag die iemand op een project- of ticketpagina aan Claude stelde.
+- Beantwoord hem met wat je weet uit de app (project_info, project_berichten, taken, mijlpalen, planning, materiaal) en, als het nodig is, uit de mail van het project. Kort, feitelijk, met bron en datum. Geen bedragen als de vrager monteur of verkoop is (veld rol), geen personeelszaken.
+- Antwoorden: python3 "<MAP>/voorraad-app/vapp.py" vraag_antwoord '{"id":<id>,"antwoord":"..."}'. Dat zet het antwoord op de tijdlijn en geeft de vrager een seintje. Gebruik voor een vraag geen notitie_verwerkt.
+- Vraagt iemand om een handeling (iets bestellen, een mail sturen, de planning wijzigen): doe dat niet, maar antwoord wat je zou voorstellen en maak er zo nodig een taak voor de juiste eigenaar van. Alleen Ruben mag Claude via @claude opdrachten geven.
+
+6. OPLEVERDOSSIER ALS CONCEPT NA "WERK KLAAR" (lichte en grote run)
+- Zie je in dagstatus een melding "klaar" van een monteur op de laatste geplande dag van een project (geen latere dag in de planning), vul dan het opleverdossier alvast in: python3 "<MAP>/voorraad-app/vapp.py" oplevering_concept '{"project":"PRJ-<nr>","ems":"<uit project systeem of berichten>","materiaal":"<wat volgens de app naar het project ging, kort>","serienummers":"<alleen als ze letterlijk in een bericht of notitie staan>","opmerkingen":"<wat de monteur in zijn melding schreef>"}'.
+- De app vult alleen lege velden en geeft de projectleider een seintje om het na te kijken. Verzin niets: wat je niet weet, laat je weg. Wachtwoorden nooit.
+
+7. LOGBOEK EN ONGEDAAN
+- Alles wat je via vapp.py verandert, staat op de pagina "Door Claude" met een knop Ongedaan. Lees aan het begin van de grote run wat sinds de vorige grote run ongedaan is gemaakt: python3 "<MAP>/voorraad-app/vapp.py" claude_log '{"sinds":"<datum vorige run>"}' (naar bestand; kijk naar ongedaan_op en ongedaan_door).
+- Wat iemand ongedaan maakte, doe je niet opnieuw. Leg het in één regel vast in <MAP>/brein/antwoorden_ruben.md (wat, wie, datum) zodat je de les onthoudt, en noem het in F2 onder "Teruggedraaid door kantoor".
