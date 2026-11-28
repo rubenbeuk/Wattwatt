@@ -266,7 +266,7 @@ function tarieven(): array
 {
     $r = q("SELECT waarde FROM brein_stand WHERE sleutel = 'tarieven'")->fetchColumn();
     $t = $r ? (json_decode((string)$r, true) ?: []) : [];
-    return ['uurtarief' => (float)($t['uurtarief'] ?? 0), 'reistarief' => (float)($t['reistarief'] ?? 0), 'opslag' => (float)($t['opslag'] ?? 0)];
+    return ['uurtarief' => (float)($t['uurtarief'] ?? 0), 'reistarief' => (float)($t['reistarief'] ?? 0), 'opslag' => (float)($t['opslag'] ?? 0), 'kostprijs' => (float)($t['kostprijs'] ?? 0)];
 }
 function begroting_regels(int $pid): array { return q('SELECT * FROM begroting WHERE project_id = ? ORDER BY FIELD(soort, "materiaal", "arbeid", "overig"), id', [$pid])->fetchAll(); }
 function begroting_totaal(int $pid): float { return (float)q('SELECT COALESCE(SUM(aantal * prijs), 0) FROM begroting WHERE project_id = ?', [$pid])->fetchColumn(); }
@@ -407,4 +407,30 @@ function termijnen_te_factureren(): array
         'oplevering' => (bool)$t['opgeleverd'],
         default => false,
     }));
+}
+
+// ---------- Nacalculatie (ronde 3, 28-11-2026): begroot tegenover werkelijk ----------
+/**
+ * Kosten en opbrengst van een project. Kosten = materiaal uit voorraad (inkoopwaarde van de boekingen)
+ * + inkoopfacturen van bestellingen die direct op het project zijn geleverd + uren maal kostprijs.
+ * Opbrengst = de begroting (projecten) of wat gefactureerd is (service).
+ */
+function nacalculatie(int $pid): array
+{
+    $tar = tarieven();
+    $beg = q("SELECT soort, COALESCE(SUM(aantal * prijs), 0) s FROM begroting WHERE project_id = ? GROUP BY soort", [$pid])->fetchAll(PDO::FETCH_KEY_PAIR);
+    $voorraad = (float)q("SELECT COALESCE(SUM(-m.aantal * COALESCE(m.prijs, 0)), 0) FROM mutaties m WHERE m.project_id = ? AND m.type IN ('uit','retour','correctie')", [$pid])->fetchColumn();
+    $direct = (float)q("SELECT COALESCE(SUM(factuurbedrag), 0) FROM bestellingen WHERE project_id = ? AND levering = 'project' AND factuurbedrag IS NOT NULL", [$pid])->fetchColumn();
+    $uren = (float)q('SELECT COALESCE(SUM(uren), 0) FROM uren WHERE project_id = ?', [$pid])->fetchColumn();
+    $gefact = (float)q("SELECT COALESCE(SUM(r.aantal * r.prijs), 0) FROM facturen f JOIN factuurregels r ON r.factuur_id = f.id WHERE f.project_id = ? AND f.status <> 'vervallen'", [$pid])->fetchColumn();
+    $begroot = array_sum(array_map('floatval', $beg));
+    $kosten = $voorraad + $direct + $uren * $tar['kostprijs'];
+    $opbrengst = $begroot > 0 ? $begroot : $gefact;
+    return [
+        'begroot' => $begroot, 'begroot_materiaal' => (float)($beg['materiaal'] ?? 0), 'begroot_arbeid' => (float)($beg['arbeid'] ?? 0),
+        'materiaal_voorraad' => $voorraad, 'materiaal_direct' => $direct, 'uren' => $uren, 'kosten_uren' => $uren * $tar['kostprijs'],
+        'kosten' => $kosten, 'gefactureerd' => $gefact, 'opbrengst' => $opbrengst,
+        'marge' => $opbrengst - $kosten, 'marge_pct' => $opbrengst > 0 ? round(($opbrengst - $kosten) / $opbrengst * 100, 1) : null,
+        'zonder_kostprijs' => $tar['kostprijs'] <= 0,
+    ];
 }

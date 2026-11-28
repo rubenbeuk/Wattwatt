@@ -9,7 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $actie = $_POST['actie'] ?? '';
     $fid = (int)($_POST['id'] ?? 0);
     if ($actie === 'tarieven') {
-        $t = ['uurtarief' => num($_POST['uurtarief'] ?? 0) ?? 0, 'reistarief' => num($_POST['reistarief'] ?? 0) ?? 0, 'opslag' => num($_POST['opslag'] ?? 0) ?? 0];
+        $t = ['uurtarief' => num($_POST['uurtarief'] ?? 0) ?? 0, 'reistarief' => num($_POST['reistarief'] ?? 0) ?? 0, 'opslag' => num($_POST['opslag'] ?? 0) ?? 0, 'kostprijs' => num($_POST['kostprijs'] ?? 0) ?? 0];
         q("INSERT INTO brein_stand (sleutel, waarde) VALUES ('tarieven', ?) ON DUPLICATE KEY UPDATE waarde = VALUES(waarde)", [json_encode($t)]);
         flash('Tarieven opgeslagen.');
         redirect('facturen.php');
@@ -150,6 +150,24 @@ if ($f):
   <ul class="plijst"><?php foreach ($tickets as $t): ?><li><a href="project.php?nr=<?= e(rawurlencode($t['nummer'])) ?>#financieel"><b><?= e($t['nummer']) ?></b></a> <?= e($t['omschrijving']) ?> · <?= str_replace('.', ',', (string)(float)$t['uren']) ?> uur nog niet in een voorstel</li><?php endforeach; ?></ul>
 </section>
 <?php endif; ?>
+<?php
+    $margeRijen = [];
+    foreach (q("SELECT p.id, p.nummer, p.omschrijving, p.fase FROM projecten p WHERE p.soort = 'project' AND EXISTS (SELECT 1 FROM begroting b WHERE b.project_id = p.id) ORDER BY p.id DESC LIMIT 60")->fetchAll() as $p) $margeRijen[] = $p + nacalculatie((int)$p['id']);
+    usort($margeRijen, fn($a, $b) => ($a['marge_pct'] ?? 999) <=> ($b['marge_pct'] ?? 999));
+?>
+<?php if ($margeRijen): ?>
+<section class="card">
+  <details><summary><b>Marge per project</b> <span class="small muted">begroot tegenover kosten tot nu toe; laagste marge bovenaan<?= $tar['kostprijs'] <= 0 ? ' · stel de kostprijs per uur in, anders tellen uren niet mee' : '' ?></span></summary>
+  <div class="tablewrap mt"><table>
+    <thead><tr><th>Project</th><th class="r">Begroot</th><th class="r">Materiaal</th><th class="r">Uren</th><th class="r">Kosten</th><th class="r">Marge</th></tr></thead>
+    <tbody><?php foreach ($margeRijen as $m): ?>
+      <tr><td><a href="project.php?nr=<?= e(rawurlencode($m['nummer'])) ?>#financieel"><?= e($m['nummer']) ?></a> <span class="small muted"><?= e(mb_strimwidth((string)$m['omschrijving'], 0, 36, '…')) ?> · <?= e(fase_naam($m['fase'])) ?></span></td>
+        <td class="r"><?= fmt_eur($m['begroot']) ?></td><td class="r"><?= fmt_eur($m['materiaal_voorraad'] + $m['materiaal_direct']) ?></td><td class="r"><?= str_replace('.', ',', (string)(float)$m['uren']) ?></td>
+        <td class="r"><?= fmt_eur($m['kosten']) ?></td><td class="r <?= $m['marge_pct'] !== null && $m['marge_pct'] < 15 ? 'rood' : '' ?>"><?= fmt_eur($m['marge']) ?><?= $m['marge_pct'] !== null ? ' <span class="small">(' . str_replace('.', ',', (string)$m['marge_pct']) . '%)</span>' : '' ?></td></tr>
+    <?php endforeach; ?></tbody>
+  </table></div></details>
+</section>
+<?php endif; ?>
 <section class="card">
   <h2>Voorstellen</h2>
   <?php if (!$lijst): ?><p class="muted small">Nog geen factuurvoorstellen.</p><?php endif; ?>
@@ -163,11 +181,12 @@ if ($f):
   </table></div>
 </section>
 <section class="card">
-  <details><summary><b>Tarieven voor service (regie)</b> <span class="small muted">uur <?= fmt_eur($tar['uurtarief']) ?> · reis <?= fmt_eur($tar['reistarief'] ?: $tar['uurtarief']) ?> · opslag materiaal <?= (float)$tar['opslag'] ?>%</span></summary>
+  <details><summary><b>Tarieven</b> <span class="small muted">uur <?= fmt_eur($tar['uurtarief']) ?> · reis <?= fmt_eur($tar['reistarief'] ?: $tar['uurtarief']) ?> · opslag materiaal <?= (float)$tar['opslag'] ?>%</span></summary>
     <form method="post" class="row wrap mt"><?= csrf_field() ?><input type="hidden" name="actie" value="tarieven">
       <label>Uurtarief (excl. btw) <input name="uurtarief" inputmode="decimal" value="<?= e(str_replace('.', ',', (string)$tar['uurtarief'])) ?>"></label>
       <label>Reistarief per uur <input name="reistarief" inputmode="decimal" value="<?= e(str_replace('.', ',', (string)$tar['reistarief'])) ?>" placeholder="leeg = uurtarief"></label>
       <label>Opslag op inkoop materiaal (%) <input name="opslag" inputmode="decimal" value="<?= e(str_replace('.', ',', (string)$tar['opslag'])) ?>"></label>
+      <label>Kostprijs per uur (voor de marge) <input name="kostprijs" inputmode="decimal" value="<?= e(str_replace('.', ',', (string)$tar['kostprijs'])) ?>"></label>
       <button class="btn small">Opslaan</button></form>
   </details>
 </section>

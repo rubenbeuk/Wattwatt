@@ -205,6 +205,7 @@ if (is_admin()) {
     $termijnen = termijnen_van((int)$pr['id']);
     $facturen = q('SELECT f.*, (SELECT COALESCE(SUM(aantal * prijs), 0) FROM factuurregels r WHERE r.factuur_id = f.id) totaal FROM facturen f WHERE f.project_id = ? ORDER BY f.id DESC', [$pr['id']])->fetchAll();
     $gefactureerd = array_sum(array_map(fn($f) => $f['status'] !== 'vervallen' ? (float)$f['totaal'] : 0, $facturen));
+    $nc = nacalculatie((int)$pr['id']);
 }
 
 page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'service' : 'projecten');
@@ -596,8 +597,9 @@ page_head(($service ? 'Ticket ' : 'Project ') . $pr['nummer'], $service ? 'servi
       <div class="pcijfers">
         <div><b><?= fmt_eur($begrotingTotaal) ?></b><span>begroot (excl. btw)</span></div>
         <div><b><?= fmt_eur($gefactureerd) ?></b><span>gefactureerd of voorgesteld</span></div>
-        <div><b><?= fmt_eur($totaal) ?></b><span>materiaal geboekt (inkoop)</span></div>
-        <div><b><?= str_replace('.', ',', (string)(float)($urenTotaal = (float)q('SELECT COALESCE(SUM(uren), 0) FROM uren WHERE project_id = ?', [$pr['id']])->fetchColumn())) ?></b><span>uren geschreven</span></div>
+        <div><b><?= fmt_eur($nc['materiaal_voorraad'] + $nc['materiaal_direct']) ?></b><span>materiaal (voorraad <?= fmt_eur($nc['materiaal_voorraad']) ?>, direct geleverd <?= fmt_eur($nc['materiaal_direct']) ?>)</span></div>
+        <div><b><?= str_replace('.', ',', (string)(float)$nc['uren']) ?></b><span>uren geschreven<?= $nc['zonder_kostprijs'] ? '' : ' · ' . fmt_eur($nc['kosten_uren']) ?></span></div>
+        <div><b class="<?= $nc['marge_pct'] !== null && $nc['marge_pct'] < 15 ? 'rood' : '' ?>"><?= $nc['opbrengst'] > 0 ? fmt_eur($nc['marge']) : '–' ?></b><span>marge tot nu toe<?= $nc['marge_pct'] !== null ? ' (' . str_replace('.', ',', (string)$nc['marge_pct']) . '%)' : '' ?><?= $nc['zonder_kostprijs'] ? ' · zonder uren (kostprijs per uur niet ingesteld)' : '' ?></span></div>
       </div>
     </section>
     <section class="card">
